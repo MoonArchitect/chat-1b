@@ -57,6 +57,14 @@ var WebSocketMessageBytesWritten = promauto.NewHistogram(prometheus.HistogramOpt
 	Name:    "websocket_message_bytes_written",
 	Buckets: []float64{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 3000, 7000, 10000, 50000, 100000, 1000000},
 })
+var WebSocketRequestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "websocket_request_duration",
+	Buckets: []float64{10, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 1000, 3000, 7000, 10000, 50000, 100000, 1000000},
+})
+var SqliteRequestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "sqlite_request_duration",
+	Buckets: []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 35, 40, 45, 50, 100, 300, 700, 1000, 5000, 10000, 50000, 100000, 1000000},
+})
 
 var WebSocketConnectionCount = promauto.NewGauge(prometheus.GaugeOpts{
 	Name: "websocket_connection_count",
@@ -77,6 +85,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	db.SetMaxOpenConns(1)
+	go func() {
+		for {
+			time.Sleep(time.Second)
+			fmt.Println("--------------------------------")
+			fmt.Printf("%+v\n", db.Stats())
+			fmt.Println("--------------------------------")
+		}
+	}()
+
 	defer db.Close()
 	repo := newDbRepo(db)
 	connMap := sync.Map{}
@@ -106,6 +124,7 @@ func main() {
 func updateMetrics(repo IDbRepo) {
 	go func() {
 		for {
+			time.Sleep(time.Second)
 			numUsers, err := repo.NumberOfUsers(context.TODO())
 			if err != nil {
 				fmt.Println("error: failed to get number of users: ", err)
@@ -263,20 +282,22 @@ type ChatListNotification struct {
 // MetricsConn wraps a websocket.Conn with metrics
 type MetricsConn struct {
 	conn *websocket.Conn
+	m    *sync.Mutex
 }
 
 // NewMetricsConn creates a new MetricsConn
 func NewMetricsConn(conn *websocket.Conn) *MetricsConn {
-	return &MetricsConn{conn: conn}
+	return &MetricsConn{conn: conn, m: &sync.Mutex{}}
 }
 
 // ReadMessage wraps the underlying ReadMessage with metrics
 func (m *MetricsConn) ReadJSON(v interface{}) error {
 	_, p, err := m.conn.ReadMessage()
-	if err == nil {
-		WebSocketReadRequestCount.Inc()
-		WebSocketMessageBytesRead.Observe(float64(len(p)))
+	if err != nil {
+		return err
 	}
+	WebSocketReadRequestCount.Inc()
+	WebSocketMessageBytesRead.Observe(float64(len(p)))
 	err = json.Unmarshal(p, v)
 	if err != nil {
 		return err
@@ -287,6 +308,8 @@ func (m *MetricsConn) ReadJSON(v interface{}) error {
 
 // WriteMessage wraps the underlying WriteMessage with metrics
 func (m *MetricsConn) WriteJSON(v interface{}) error {
+	m.m.Lock()
+	defer m.m.Unlock()
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -327,6 +350,7 @@ func readRoutine(conn *MetricsConn, h hub, conn_uid string) {
 			}
 			break
 		}
+		reqT := time.Now()
 		// fmt.Println("dest: ", dest)
 
 		switch dest.Opcode {
@@ -506,6 +530,9 @@ func readRoutine(conn *MetricsConn, h hub, conn_uid string) {
 				continue
 			}
 		}
+
+		duration := time.Since(reqT)
+		WebSocketRequestDuration.Observe(float64(duration.Milliseconds()))
 	}
 }
 

@@ -28,13 +28,13 @@ const LIST_USERS_URL = "http://" + API_DOMAIN + "/user/list"
 var allUserIds = make([]string, 0)
 
 // Configuration
-const NumberOfUsers = 10      // number of concurrent users
-const UserCreationRate = 0.15 // probability of creating a new user instead of using an existing one
+const NumberOfUsers = 100     // number of concurrent users
+const UserCreationRate = 0.02 // probability of creating a new user instead of using an existing one
 const MeanUserOnlineTime = 20 // in seconds
-const TimeBetweenActions = 100 * time.Millisecond
-const ProbCreateChat = 0.05
-const ProbAddUsers = 0.05
-const ProbSwitchChat = 0.05
+const TimeBetweenActions = 2000 * time.Millisecond
+const ProbCreateChat = 0.0005
+const ProbAddUsers = 0.01
+const ProbSwitchChat = 0.04
 
 func main() {
 	resp, err := http.Get(LIST_USERS_URL)
@@ -123,7 +123,7 @@ outer:
 					break outer
 				}
 			}
-			fmt.Println("did not get list_chats: ", dest)
+			//fmt.Println("did not get list_chats: ", dest)
 			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 		}
 	}
@@ -150,7 +150,7 @@ outer2:
 			chats_list := chats.([]interface{})
 			chat := chats_list[rand.Intn(len(chats_list))]
 			chat_id := chat.(map[string]interface{})["ChatID"].(string)
-			nUsers := rand.Intn(10)
+			nUsers := rand.Intn(5)
 			//fmt.Println("addUsers", nUsers)
 			for i := 0; i < nUsers; i++ {
 				user := allUserIds[rand.Intn(len(allUserIds))]

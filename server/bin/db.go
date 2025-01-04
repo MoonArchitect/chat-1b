@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
@@ -18,7 +20,7 @@ const (
 )
 
 type dbRepo struct {
-	db *sqlx.DB
+	db MetricsDb
 }
 
 type IDbRepo interface {
@@ -34,9 +36,37 @@ type IDbRepo interface {
 	NumberOfMessages(ctx context.Context) (int, error)
 }
 
+type MetricsDb struct {
+	db *sqlx.DB
+}
+
+func (m MetricsDb) GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error {
+	start := time.Now()
+	resp := m.db.GetContext(ctx, dest, query, args...)
+	duration := time.Since(start)
+	SqliteRequestDuration.Observe(float64(duration.Milliseconds()))
+	return resp
+}
+
+func (m MetricsDb) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	start := time.Now()
+	resp, err := m.db.ExecContext(ctx, query, args...)
+	duration := time.Since(start)
+	SqliteRequestDuration.Observe(float64(duration.Milliseconds()))
+	return resp, err
+}
+
+func (m MetricsDb) SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error {
+	start := time.Now()
+	err := m.db.SelectContext(ctx, dest, query, args...)
+	duration := time.Since(start)
+	SqliteRequestDuration.Observe(float64(duration.Milliseconds()))
+	return err
+}
+
 func newDbRepo(db *sqlx.DB) IDbRepo {
 	return dbRepo{
-		db: db,
+		db: MetricsDb{db: db},
 	}
 }
 
