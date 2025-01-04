@@ -13,8 +13,64 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/jmoiron/sqlx"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 )
+
+var ChatEndpointRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "chat_endpoint_request_count",
+})
+var UserCreateRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "user_create_request_count",
+})
+var SendMessageOpCodeRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "send_message_op_code_request_count",
+})
+var ListChatsOpCodeRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "list_chats_op_code_request_count",
+})
+var ListUsersOpCodeRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "list_users_op_code_request_count",
+})
+var CreateChatOpCodeRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "create_chat_op_code_request_count",
+})
+var AddUserOpCodeRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "add_user_op_code_request_count",
+})
+var ListMessagesOpCodeRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "list_messages_op_code_request_count",
+})
+var WebSocketReadRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "websocket_read_request_count",
+})
+var WebSocketWriteRequestCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "websocket_write_request_count",
+})
+var WebSocketMessageBytesRead = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "websocket_message_bytes_read",
+	Buckets: []float64{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 3000, 7000, 10000, 50000, 100000, 1000000},
+})
+var WebSocketMessageBytesWritten = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "websocket_message_bytes_written",
+	Buckets: []float64{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 3000, 7000, 10000, 50000, 100000, 1000000},
+})
+
+var WebSocketConnectionCount = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "websocket_connection_count",
+})
+
+var NumberOfUsers = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "number_of_users",
+})
+var NumberOfChats = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "number_of_chats",
+})
+var NumberOfMessages = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "number_of_messages",
+})
 
 func main() {
 	db, err := sqlx.Open("sqlite3", "../db-data/sqlite-database.db") // Open the created SQLite File
@@ -27,6 +83,7 @@ func main() {
 	t := hub{repo: repo, connList: &connMap}
 
 	fmt.Println("Starting the server")
+	updateMetrics(repo)
 
 	// add middleware to handle CORS
 	corsMiddleware := cors.New(cors.Options{
@@ -34,6 +91,7 @@ func main() {
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"*"},
 	})
+	http.Handle("/metrics", promhttp.Handler())
 	http.Handle("/chat", corsMiddleware.Handler(http.HandlerFunc(t.wsHandler)))
 	http.Handle("/user/create", corsMiddleware.Handler(http.HandlerFunc(createUserHandler)))
 	http.Handle("/user/list", corsMiddleware.Handler(http.HandlerFunc(listUsersHandler(repo))))
@@ -45,7 +103,36 @@ func main() {
 	fmt.Println("Exit")
 }
 
+func updateMetrics(repo IDbRepo) {
+	go func() {
+		for {
+			numUsers, err := repo.NumberOfUsers(context.TODO())
+			if err != nil {
+				fmt.Println("error: failed to get number of users: ", err)
+				continue
+			}
+			NumberOfUsers.Set(float64(numUsers))
+
+			numChats, err := repo.NumberOfChats(context.TODO())
+			if err != nil {
+				fmt.Println("error: failed to get number of chats: ", err)
+				continue
+			}
+			NumberOfChats.Set(float64(numChats))
+
+			numMessages, err := repo.NumberOfMessages(context.TODO())
+			if err != nil {
+				fmt.Println("error: failed to get number of messages: ", err)
+				continue
+			}
+			NumberOfMessages.Set(float64(numMessages))
+		}
+	}()
+}
+
 func createUserHandler(w http.ResponseWriter, r *http.Request) {
+	UserCreateRequestCount.Inc()
+
 	uid := uuid.NewString()
 	w.Header().Set("Content-Type", "text/plain")
 	_, err := w.Write([]byte(uid))
@@ -96,7 +183,8 @@ func (h hub) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	// conn.Close()
 	// fmt.Println("CLOSED")
-	go readRoutine(conn, h, uid)
+	ChatEndpointRequestCount.Inc()
+	go readRoutine(NewMetricsConn(conn), h, uid)
 	// go writeRoutine(conn, h)
 }
 
@@ -172,9 +260,56 @@ type ChatListNotification struct {
 	LastActivity int64  `json:"last_activity"`
 }
 
-func readRoutine(conn *websocket.Conn, h hub, conn_uid string) {
+// MetricsConn wraps a websocket.Conn with metrics
+type MetricsConn struct {
+	conn *websocket.Conn
+}
+
+// NewMetricsConn creates a new MetricsConn
+func NewMetricsConn(conn *websocket.Conn) *MetricsConn {
+	return &MetricsConn{conn: conn}
+}
+
+// ReadMessage wraps the underlying ReadMessage with metrics
+func (m *MetricsConn) ReadJSON(v interface{}) error {
+	_, p, err := m.conn.ReadMessage()
+	if err == nil {
+		WebSocketReadRequestCount.Inc()
+		WebSocketMessageBytesRead.Observe(float64(len(p)))
+	}
+	err = json.Unmarshal(p, v)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// WriteMessage wraps the underlying WriteMessage with metrics
+func (m *MetricsConn) WriteJSON(v interface{}) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	err = m.conn.WriteMessage(websocket.TextMessage, data)
+	if err == nil {
+		WebSocketWriteRequestCount.Inc()
+		WebSocketMessageBytesWritten.Observe(float64(len(data)))
+	}
+	return err
+}
+
+// Close delegates to the underlying connection
+func (m *MetricsConn) Close() error {
+	return m.conn.Close()
+}
+
+func readRoutine(conn *MetricsConn, h hub, conn_uid string) {
 	h.connList.Store(conn_uid, conn)
 	defer h.connList.Delete(conn_uid)
+
+	WebSocketConnectionCount.Inc()
+	defer WebSocketConnectionCount.Dec()
 
 	for {
 		ctx := context.TODO()
@@ -192,11 +327,11 @@ func readRoutine(conn *websocket.Conn, h hub, conn_uid string) {
 			}
 			break
 		}
-
-		fmt.Println("dest: ", dest)
+		// fmt.Println("dest: ", dest)
 
 		switch dest.Opcode {
 		case "list_chats":
+			ListChatsOpCodeRequestCount.Inc()
 			uid, ok := dest.Data["uid"].(string)
 			if !ok {
 				fmt.Println("failed to read dest.Data: ", dest.Data)
@@ -215,6 +350,7 @@ func readRoutine(conn *websocket.Conn, h hub, conn_uid string) {
 				continue
 			}
 		case "list_messages":
+			ListMessagesOpCodeRequestCount.Inc()
 			chat_id, ok := dest.Data["chat_id"].(string)
 			if !ok {
 				fmt.Println("failed to read chat_id: ", dest.Data)
@@ -240,6 +376,7 @@ func readRoutine(conn *websocket.Conn, h hub, conn_uid string) {
 				continue
 			}
 		case "list_users":
+			ListUsersOpCodeRequestCount.Inc()
 			chat_id, ok := dest.Data["chat_id"].(string)
 			if !ok {
 				fmt.Println("failed to read chat_id: ", dest.Data)
@@ -257,6 +394,7 @@ func readRoutine(conn *websocket.Conn, h hub, conn_uid string) {
 				continue
 			}
 		case "send_message":
+			SendMessageOpCodeRequestCount.Inc()
 			uid, ok := dest.Data["uid"].(string)
 			if !ok {
 				fmt.Println("failed to read uid: ", dest.Data)
@@ -293,6 +431,7 @@ func readRoutine(conn *websocket.Conn, h hub, conn_uid string) {
 			}
 
 		case "create_chat":
+			CreateChatOpCodeRequestCount.Inc()
 			uid, ok := dest.Data["uid"].(string)
 			if !ok {
 				fmt.Println("failed to read uid: ", dest.Data)
@@ -310,6 +449,7 @@ func readRoutine(conn *websocket.Conn, h hub, conn_uid string) {
 				continue
 			}
 		case "add_user":
+			AddUserOpCodeRequestCount.Inc()
 			// notify all other users that a user was added, show this as a status event in chat
 			chat_id, ok := dest.Data["chat_id"].(string)
 			if !ok {
@@ -375,7 +515,7 @@ func notifyAboutChatList(h hub, chat_id string, uid string, lastActivity int64) 
 		return nil
 	}
 
-	userConn, ok := userConnInterface.(*websocket.Conn)
+	userConn, ok := userConnInterface.(*MetricsConn)
 	if !ok {
 		return fmt.Errorf("failed to cast user conn: %s", uid)
 	}
@@ -405,7 +545,7 @@ func notifyAboutUserList(ctx context.Context, h hub, chat_id string, origin_uid 
 			continue
 		}
 
-		userConn, ok := userConnInterface.(*websocket.Conn)
+		userConn, ok := userConnInterface.(*MetricsConn)
 		if !ok {
 			fmt.Println("failed to cast user conn: ", user_id)
 			continue
@@ -438,7 +578,7 @@ func notifyAboutMessage(ctx context.Context, h hub, chat_id string, text string,
 			continue
 		}
 
-		userConn, ok := userConnInterface.(*websocket.Conn)
+		userConn, ok := userConnInterface.(*MetricsConn)
 		if !ok {
 			fmt.Println("failed to cast user conn: ", user_id)
 			continue

@@ -29,6 +29,9 @@ type IDbRepo interface {
 	ListChatUsers(ctx context.Context, chatId string) ([]string, error)
 	CreateMessage(ctx context.Context, userId, chatId, text string, createdAtMicro int64) (string, error)
 	ListMessages(ctx context.Context, chatId string, page uint64) ([]MessageDB, error)
+	NumberOfUsers(ctx context.Context) (int, error)
+	NumberOfChats(ctx context.Context) (int, error)
+	NumberOfMessages(ctx context.Context) (int, error)
 }
 
 func newDbRepo(db *sqlx.DB) IDbRepo {
@@ -43,6 +46,33 @@ func newDbRepo(db *sqlx.DB) IDbRepo {
 // list chats -> get all chat-id by user-id
 // get users in a chat -> list user-id by chat-id
 // paginate messages from a chat -> get messages by chat-id
+
+func (r dbRepo) NumberOfUsers(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count, "SELECT COUNT(DISTINCT user_id) FROM chats")
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r dbRepo) NumberOfChats(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count, "SELECT COUNT(DISTINCT chat_id) FROM chats")
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r dbRepo) NumberOfMessages(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count, "SELECT COUNT(DISTINCT msg_id) FROM messages")
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
 
 type ChatDB struct {
 	ChatID string `db:"chat_id"`
