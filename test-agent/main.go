@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -28,9 +29,9 @@ const LIST_USERS_URL = "http://" + API_DOMAIN + "/user/list"
 var allUserIds = make([]string, 0)
 
 // Configuration
-const NumberOfUsers = 100     // number of concurrent users
+var NumberOfUsers = 10        // number of concurrent users
 const UserCreationRate = 0.02 // probability of creating a new user instead of using an existing one
-const MeanUserOnlineTime = 20 // in seconds
+const MeanUserOnlineTime = 60 // in seconds
 const TimeBetweenActions = 2000 * time.Millisecond
 const ProbCreateChat = 0.0005
 const ProbAddUsers = 0.01
@@ -60,11 +61,19 @@ func main() {
 		allUserIds = append(allUserIds, u.ID)
 	}
 
-	limiter := make(chan struct{}, NumberOfUsers)
+	var userCount int32 = 0
+	st := time.Now()
 
 	for {
-		// fmt.Println("limiter len: ", len(limiter))
-		limiter <- struct{}{}
+		if time.Since(st) > 1*time.Second {
+			NumberOfUsers += 2
+			st = time.Now()
+		}
+		if atomic.LoadInt32(&userCount) >= int32(NumberOfUsers) {
+			time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
+			continue
+		}
+
 		r := rand.Float32()
 		uid := ""
 		if r < UserCreationRate {
@@ -82,7 +91,8 @@ func main() {
 			uid = allUserIds[rand.Intn(len(allUserIds))]
 		}
 
-		go simulateUser(uid, limiter)
+		userCount += 1
+		go simulateUser(uid, &userCount)
 		time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
 	}
 }
@@ -92,8 +102,8 @@ type ChatWithLatestMessage struct {
 	LatestMessageAt int64  `json:"latest_message"`
 }
 
-func simulateUser(uid string, limiter chan struct{}) {
-	defer func() { <-limiter }()
+func simulateUser(uid string, userCount *int32) {
+	defer func() { atomic.AddInt32(userCount, -1) }()
 	onlineTime := max(0, rand.NormFloat64()*MeanUserOnlineTime/6+MeanUserOnlineTime)
 	ctx, cancel := context.WithDeadline(context.TODO(), time.Now().Add(time.Duration(onlineTime)*time.Second))
 	defer cancel()

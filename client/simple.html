@@ -151,7 +151,7 @@
             const new_ws = new WebSocket(`ws://localhost:8080/chat?uid=${userId}`);
             lastWsConnectionTime = Date.now();
             new_ws.onmessage = function(event) {
-                console.log(event.data);
+                //console.log(event.data);
                 let data = JSON.parse(event.data);
                 if (data.opcode === "chat_list") {
                     let chatList = data.chats;
@@ -165,7 +165,6 @@
                     drawChatList();
                     drawChatData();
                     if (selectedChat === null && chats.length > 0) {
-                        console.log("selecting chat: ", chats[0].id);
                         selectChat(chats[0].id);
                     }
                 } else if (data.opcode === "chat_created") {
@@ -475,13 +474,24 @@
             return element.scrollHeight - element.scrollTop - element.clientHeight < 100;
         }
 
+        const decoder = new TextDecoder();
+        async function getUserColor(userId) {
+            // hash user id to a color with sha256
+            const hash = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(userId));
+            const arr = new Uint8Array(hash);
+            const color = "rgb(" + (arr[0] % 128 + 128) + ", " + (arr[1] % 128 + 128) + ", " + (arr[2] % 128 + 128) + ")";
+            return color;
+        }
+
         // Modify the addMessage function
-        function addMessage(userId, timestamp, message) {
+        async function addMessage(userId, timestamp, message) {
             var msgList = document.getElementById("msg-list");
             var shouldScroll = shouldAutoScroll(msgList);
             
             var msgBody = document.createElement("div");
             msgBody.classList.add("msg-body");
+            // color the message based on the user id
+            msgBody.style.color = await getUserColor(userId);
             msgBody.innerHTML = "<p class='msg-user'>" + userId + " - " + new Date(timestamp).toISOString() + "</p><p class='msg-text'>" + message + "</p>";
             msgList.appendChild(msgBody);
 
@@ -496,7 +506,6 @@
             // Remove selected class from previous selection
             const previousSelected = document.querySelector('.chat-list-item.selected');
             if (previousSelected) {
-                console.log("removing selected class from: ", previousSelected);
                 previousSelected.classList.remove('selected');
             }
 

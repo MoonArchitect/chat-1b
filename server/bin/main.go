@@ -85,7 +85,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(5)
 	go func() {
 		for {
 			time.Sleep(time.Second)
