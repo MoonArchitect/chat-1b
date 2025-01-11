@@ -52,10 +52,10 @@ func poolSize() int {
 
 // Configuration
 var NumberOfUsers = 10        // number of concurrent users
-const UserCreationRate = 0.02 // probability of creating a new user instead of using an existing one
+const UserCreationRate = 0.04 // probability of creating a new user instead of using an existing one
 const MeanUserOnlineTime = 60 // in seconds
 const TimeBetweenActions = 2000 * time.Millisecond
-const ProbCreateChat = 0.0005
+const ProbCreateChat = 0.001
 const ProbAddUsers = 0.01
 const ProbSwitchChat = 0.04
 
@@ -115,14 +115,15 @@ func main() {
 		}
 
 		userCount += 1
-		go simulateUser(uid, &userCount)
+		su := &SimulatedUser{uid: uid}
+		go su.simulateUser(&userCount)
 		time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
 	}
 }
 
 type ChatWithLatestMessage struct {
-	ChatID          string `json:"chat_id"`
-	LatestMessageAt int64  `json:"latest_message"`
+	ChatID          string
+	LatestMessageAt int64
 }
 
 type SimulatedUser struct {
@@ -131,107 +132,86 @@ type SimulatedUser struct {
 	conn    *websocket.Conn
 }
 
-func simulateUser(uid string, userCount *int32) {
-	defer func() { atomic.AddInt32(userCount, -1) }()
+func (u *SimulatedUser) readPump() {
+	for {
+		var dest map[string]interface{}
+		err := u.conn.ReadJSON(&dest)
+		if err != nil {
+			fmt.Println("error reading json: ", err)
+			return // todo: proper handling of conn
+		}
+		if dest["opcode"] == "chat_list" {
+			if dest["chats"] == nil {
+				continue
+			}
+			chats := dest["chats"].([]interface{})
+			for _, raw_chat := range chats {
+				chat := raw_chat.(map[string]interface{})
+				u.chatIds = append(u.chatIds, chat["ChatID"].(string))
+			}
+		} else if dest["opcode"] == "chat_list_notification" {
+			u.chatIds = append(u.chatIds, dest["chat_id"].(string))
+		} else if dest["opcode"] == "chat_created" {
+			u.chatIds = append(u.chatIds, dest["chat_id"].(string))
+		}
+	}
+}
 
-	defer func() { pushUser(uid) }()
+func (u *SimulatedUser) simulateUser(userCount *int32) {
+	defer func() { atomic.AddInt32(userCount, -1) }()
+	defer func() { pushUser(u.uid) }()
 
 	onlineTime := max(0, rand.NormFloat64()*MeanUserOnlineTime/6+MeanUserOnlineTime)
 	ctx, cancel := context.WithDeadline(context.TODO(), time.Now().Add(time.Duration(onlineTime)*time.Second))
 	defer cancel()
 
-	conn, _, err := websocket.DefaultDialer.Dial(CHAT_WS_URL+"?uid="+uid, nil)
+	conn, _, err := websocket.DefaultDialer.Dial(CHAT_WS_URL+"?uid="+u.uid, nil)
 	if err != nil {
 		log.Fatal("fatal", err)
 	}
+	u.conn = conn
+	go u.readPump()
 
-	var dest map[string]interface{}
-	var chats interface{}
+	listChats(u.uid, u.conn)
 
-outer:
-	for {
-		//fmt.Println("listChats")
-		listChats(uid, conn)
-
-		conn.ReadJSON(&dest)
-		select {
-		case <-ctx.Done():
-			break outer
-		default:
-			opcode, ok := dest["opcode"]
-			if ok && opcode == "chat_list" {
-				chats, ok = dest["chats"]
-				if ok {
-					break outer
-				}
-			}
-			//fmt.Println("did not get list_chats: ", dest)
-			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
-		}
-	}
-
-	//fmt.Println("Chats: ", chats)
-
-outer2:
+eventLoop:
 	for {
 		select {
 		case <-ctx.Done():
-			break outer2
+			break eventLoop
 		default:
 		}
 
 		p := rand.Float32()
-		if p < ProbCreateChat {
-			// create a new chat
-			//fmt.Println("createChat")
-			createChat(uid, conn)
-			// update chats list on response from server
+		if len(u.chatIds) == 0 || p < ProbCreateChat {
+			createChat(u.uid, u.conn)
+			time.Sleep(time.Second) // additional wait just in case I guess
 		} else if p < ProbCreateChat+ProbAddUsers {
-			if chats == nil {
-				continue
-			}
-			chats_list := chats.([]interface{})
-			chat := chats_list[rand.Intn(len(chats_list))]
-			chat_id := chat.(map[string]interface{})["ChatID"].(string)
-			nUsers := rand.Intn(5)
-			//fmt.Println("addUsers", nUsers)
+			chat_id := u.chatIds[rand.Intn(len(u.chatIds))]
+			nUsers := rand.Intn(8)
 			for i := 0; i < nUsers; i++ {
 				user := allUserIds[rand.Intn(len(allUserIds))]
-				addUser(chat_id, user, conn)
+				addUser(chat_id, user, u.conn)
 			}
 		} else if p < ProbCreateChat+ProbAddUsers+ProbSwitchChat {
-			//fmt.Println("switchChat")
-			if chats == nil {
-				continue
-			}
-			// switch to a random chat
-			chats_list := chats.([]interface{})
-			chat := chats_list[rand.Intn(len(chats_list))]
-			chat_id := chat.(map[string]interface{})["ChatID"].(string)
-			listMessages(chat_id, conn)
-			listUsers(chat_id, conn)
+			chat_id := u.chatIds[rand.Intn(len(u.chatIds))]
+			listMessages(chat_id, u.conn)
+			listUsers(chat_id, u.conn)
 		} else {
-			//fmt.Println("sendMessage")
-			// send a message to a random chat
-			if chats == nil {
-				continue
-			}
-			chats_list := chats.([]interface{})
-			chat := chats_list[rand.Intn(len(chats_list))]
-			chat_id := chat.(map[string]interface{})["ChatID"].(string)
+			chat_id := u.chatIds[rand.Intn(len(u.chatIds))]
 			msgLen := max(1, rand.NormFloat64()*10+20)
-			sendMessage(uid, chat_id, strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", int(msgLen)), conn)
+			sendMessage(u.uid, chat_id, strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", int(msgLen)), u.conn)
 		}
 
 		time.Sleep(TimeBetweenActions)
 	}
 
-	err = conn.Close()
+	err = u.conn.Close()
 	if err != nil {
 		fmt.Println("close error: ", err)
 	}
 
-	fmt.Println("Done", uid, onlineTime)
+	fmt.Println("Done", u.uid, onlineTime)
 }
 
 type ListChatsRequest struct {
