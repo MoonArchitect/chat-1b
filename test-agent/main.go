@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,6 +28,27 @@ const CREATE_USER_URL = "http://" + API_DOMAIN + "/user/create"
 const LIST_USERS_URL = "http://" + API_DOMAIN + "/user/list"
 
 var allUserIds = make([]string, 0)
+var userPoolCount = atomic.Int32{}
+var userPool = sync.Map{}
+
+func popUser() string {
+	userPoolCount.Add(-1)
+	var uid string
+	userPool.Range(func(key, value interface{}) bool {
+		uid = key.(string)
+		return true
+	})
+	return uid
+}
+
+func pushUser(uid string) {
+	userPoolCount.Add(1)
+	userPool.Store(uid, struct{}{})
+}
+
+func poolSize() int {
+	return int(userPoolCount.Load())
+}
 
 // Configuration
 var NumberOfUsers = 10        // number of concurrent users
@@ -59,6 +81,7 @@ func main() {
 
 	for _, u := range user {
 		allUserIds = append(allUserIds, u.ID)
+		pushUser(u.ID)
 	}
 
 	var userCount int32 = 0
@@ -76,7 +99,7 @@ func main() {
 
 		r := rand.Float32()
 		uid := ""
-		if r < UserCreationRate {
+		if r < UserCreationRate || poolSize() == 0 {
 			resp, err := http.Get(CREATE_USER_URL)
 			if err != nil {
 				log.Fatal("fatal", err)
@@ -88,7 +111,7 @@ func main() {
 			uid = string(body)
 			allUserIds = append(allUserIds, uid)
 		} else {
-			uid = allUserIds[rand.Intn(len(allUserIds))]
+			uid = popUser()
 		}
 
 		userCount += 1
@@ -102,8 +125,17 @@ type ChatWithLatestMessage struct {
 	LatestMessageAt int64  `json:"latest_message"`
 }
 
+type SimulatedUser struct {
+	uid     string
+	chatIds []string
+	conn    *websocket.Conn
+}
+
 func simulateUser(uid string, userCount *int32) {
 	defer func() { atomic.AddInt32(userCount, -1) }()
+
+	defer func() { pushUser(uid) }()
+
 	onlineTime := max(0, rand.NormFloat64()*MeanUserOnlineTime/6+MeanUserOnlineTime)
 	ctx, cancel := context.WithDeadline(context.TODO(), time.Now().Add(time.Duration(onlineTime)*time.Second))
 	defer cancel()
@@ -153,6 +185,7 @@ outer2:
 			// create a new chat
 			//fmt.Println("createChat")
 			createChat(uid, conn)
+			// update chats list on response from server
 		} else if p < ProbCreateChat+ProbAddUsers {
 			if chats == nil {
 				continue
