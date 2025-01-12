@@ -10,8 +10,6 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -28,15 +26,6 @@ type sqliteRepository struct {
 type MetricsDb struct {
 	db *sqlx.DB
 }
-
-var SqliteRequestDuration = promauto.NewHistogramVec(
-	prometheus.HistogramOpts{
-		Name:    "sqlite_request_duration",
-		Help:    "Duration of SQLite requests by operation",
-		Buckets: []float64{5, 10, 15, 25, 30, 35, 40, 45, 50, 100, 200, 300, 400, 500, 700, 1000, 2000, 3000, 4000, 5000, 10000, 50000, 100000, 500000, 1000000},
-	},
-	[]string{"operation"},
-)
 
 func (m MetricsDb) GetContext(ctx context.Context, operation string, dest interface{}, query string, args ...interface{}) error {
 	start := time.Now()
