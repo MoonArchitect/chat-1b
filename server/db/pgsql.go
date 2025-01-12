@@ -2,52 +2,24 @@ package dbrepo
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
-type sqliteRepository struct {
+var psql = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
+
+type pgsqlRepository struct {
 	db MetricsDb
 }
 
-type MetricsDb struct {
-	db *sqlx.DB
-}
-
-func (m MetricsDb) GetContext(ctx context.Context, operation string, dest interface{}, query string, args ...interface{}) error {
-	start := time.Now()
-	resp := m.db.GetContext(ctx, dest, query, args...)
-	duration := time.Since(start)
-	SqliteRequestDuration.WithLabelValues(operation).Observe(float64(duration.Milliseconds()))
-	return resp
-}
-
-func (m MetricsDb) ExecContext(ctx context.Context, operation string, query string, args ...interface{}) (sql.Result, error) {
-	start := time.Now()
-	resp, err := m.db.ExecContext(ctx, query, args...)
-	duration := time.Since(start)
-	SqliteRequestDuration.WithLabelValues(operation).Observe(float64(duration.Milliseconds()))
-	return resp, err
-}
-
-func (m MetricsDb) SelectContext(ctx context.Context, operation string, dest interface{}, query string, args ...interface{}) error {
-	start := time.Now()
-	err := m.db.SelectContext(ctx, dest, query, args...)
-	duration := time.Since(start)
-	SqliteRequestDuration.WithLabelValues(operation).Observe(float64(duration.Milliseconds()))
-	return err
-}
-
-func NewSqliteRepository(db *sqlx.DB) IDbRepo {
-	return sqliteRepository{
+func NewPgsqlRepository(db *sqlx.DB) IDbRepo {
+	return pgsqlRepository{
 		db: MetricsDb{db: db},
 	}
 }
@@ -59,7 +31,7 @@ func NewSqliteRepository(db *sqlx.DB) IDbRepo {
 // get users in a chat -> list user-id by chat-id
 // paginate messages from a chat -> get messages by chat-id
 
-func (r sqliteRepository) NumberOfUsers(ctx context.Context) (int, error) {
+func (r pgsqlRepository) NumberOfUsers(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_users", &count, "SELECT COUNT(DISTINCT user_id) FROM chats")
 	if err != nil {
@@ -68,7 +40,7 @@ func (r sqliteRepository) NumberOfUsers(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (r sqliteRepository) NumberOfChats(ctx context.Context) (int, error) {
+func (r pgsqlRepository) NumberOfChats(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_chats", &count, "SELECT COUNT(DISTINCT chat_id) FROM chats")
 	if err != nil {
@@ -77,7 +49,7 @@ func (r sqliteRepository) NumberOfChats(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (r sqliteRepository) NumberOfMessages(ctx context.Context) (int, error) {
+func (r pgsqlRepository) NumberOfMessages(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_messages", &count, "SELECT COUNT(DISTINCT msg_id) FROM messages")
 	if err != nil {
@@ -86,26 +58,8 @@ func (r sqliteRepository) NumberOfMessages(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-type ChatDB struct {
-	ChatID string `db:"chat_id"`
-	UserID string `db:"user_id"`
-}
-
-type MessageDB struct {
-	MsgID          string `db:"msg_id"`
-	ChatID         string `db:"chat_id"`
-	UserID         string `db:"user_id"`
-	CreatedAtMicro int64  `db:"created_at"`
-	Text           string `db:"text"`
-}
-
-type UserListItem struct {
-	ID            string `db:"user_id"`
-	NumberOfChats int    `db:"count"`
-}
-
-func (r sqliteRepository) ListAllUsers(ctx context.Context) ([]UserListItem, error) {
-	query, args, err := squirrel.
+func (r pgsqlRepository) ListAllUsers(ctx context.Context) ([]UserListItem, error) {
+	query, args, err := psql.
 		Select("user_id", "COUNT(*) AS count").
 		From(ChatTable).
 		GroupBy("user_id").
@@ -124,7 +78,7 @@ func (r sqliteRepository) ListAllUsers(ctx context.Context) ([]UserListItem, err
 	return res, nil
 }
 
-func (r sqliteRepository) CreateChat(ctx context.Context, userId string) (string, error) {
+func (r pgsqlRepository) CreateChat(ctx context.Context, userId string) (string, error) {
 	raw_id, err := uuid.NewRandom()
 	if err != nil {
 		return "", err
@@ -132,7 +86,7 @@ func (r sqliteRepository) CreateChat(ctx context.Context, userId string) (string
 
 	chat_id := raw_id.String()
 
-	query, args, err := squirrel.
+	query, args, err := psql.
 		Insert(ChatTable).
 		Columns(
 			"chat_id",
@@ -155,8 +109,8 @@ func (r sqliteRepository) CreateChat(ctx context.Context, userId string) (string
 	return chat_id, nil
 }
 
-func (r sqliteRepository) AddUser(ctx context.Context, chatId, userId string) error {
-	query, args, err := squirrel.
+func (r pgsqlRepository) AddUser(ctx context.Context, chatId, userId string) error {
+	query, args, err := psql.
 		Insert(ChatTable).
 		Columns(
 			"chat_id",
@@ -179,7 +133,7 @@ func (r sqliteRepository) AddUser(ctx context.Context, chatId, userId string) er
 	return nil
 }
 
-func (r sqliteRepository) CreateMessage(ctx context.Context, userId, chatId, text string, createdAtMicro int64) (string, error) {
+func (r pgsqlRepository) CreateMessage(ctx context.Context, userId, chatId, text string, createdAtMicro int64) (string, error) {
 	raw_id, err := uuid.NewRandom()
 	if err != nil {
 		return "", err
@@ -187,7 +141,7 @@ func (r sqliteRepository) CreateMessage(ctx context.Context, userId, chatId, tex
 
 	msg_id := raw_id.String()
 
-	query, args, err := squirrel.
+	query, args, err := psql.
 		Insert(MessageTable).
 		Columns(
 			"msg_id",
@@ -216,10 +170,8 @@ func (r sqliteRepository) CreateMessage(ctx context.Context, userId, chatId, tex
 	return msg_id, nil
 }
 
-const MESSAGE_PAGE_SIZE uint64 = 50
-
-func (r sqliteRepository) ListMessages(ctx context.Context, chatId string, page uint64) ([]MessageDB, error) {
-	query, args, err := squirrel.
+func (r pgsqlRepository) ListMessages(ctx context.Context, chatId string, page uint64) ([]MessageDB, error) {
+	query, args, err := psql.
 		Select("*").
 		From(MessageTable).
 		Where(squirrel.Eq{"chat_id": chatId}).
@@ -242,12 +194,7 @@ func (r sqliteRepository) ListMessages(ctx context.Context, chatId string, page 
 	return res, err
 }
 
-type ChatWithLatestMessage struct {
-	ChatID          string `db:"chat_id"`
-	LatestMessageAt int64  `db:"latest_message"`
-}
-
-func (r sqliteRepository) ListChats(ctx context.Context, userId string) ([]ChatWithLatestMessage, error) {
+func (r pgsqlRepository) ListChats(ctx context.Context, userId string) ([]ChatWithLatestMessage, error) {
 	subquery, args, err := squirrel.Select("chat_id", "MAX(created_at) as latest_message").
 		From(MessageTable).
 		GroupBy("chat_id").
@@ -256,8 +203,8 @@ func (r sqliteRepository) ListChats(ctx context.Context, userId string) ([]ChatW
 		return nil, err
 	}
 
-	query, args, err := squirrel.
-		Select("chats.chat_id", "IFNULL(latest_messages.latest_message, 0) as latest_message").
+	query, args, err := psql.
+		Select("chats.chat_id", "COALESCE(latest_messages.latest_message, CAST(0 AS BIGINT)) as latest_message").
 		From(ChatTable).
 		JoinClause(fmt.Sprintf("LEFT JOIN (%s) AS latest_messages ON chats.chat_id = latest_messages.chat_id", subquery), args...).
 		Where(squirrel.Eq{"user_id": userId}).
@@ -266,7 +213,6 @@ func (r sqliteRepository) ListChats(ctx context.Context, userId string) ([]ChatW
 	if err != nil {
 		return nil, err
 	}
-
 	var res []ChatWithLatestMessage
 	err = r.db.SelectContext(ctx, "list_chats", &res, query, args...)
 	if err != nil {
@@ -276,8 +222,8 @@ func (r sqliteRepository) ListChats(ctx context.Context, userId string) ([]ChatW
 	return res, nil
 }
 
-func (r sqliteRepository) ListChatUsers(ctx context.Context, chatId string) ([]string, error) {
-	query, args, err := squirrel.
+func (r pgsqlRepository) ListChatUsers(ctx context.Context, chatId string) ([]string, error) {
+	query, args, err := psql.
 		Select("user_id").
 		From(ChatTable).
 		Where(squirrel.Eq{"chat_id": chatId}).

@@ -29,3 +29,8 @@ var SqliteRequestDuration = promauto.NewHistogramVec(
 	},
 	[]string{"operation"},
 )
+
+const (
+	ChatTable    = "chats"
+	MessageTable = "messages"
+)

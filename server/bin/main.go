@@ -18,6 +18,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
+
+	_ "github.com/lib/pq"
 )
 
 var ChatEndpointRequestCount = promauto.NewCounter(prometheus.CounterOpts{
@@ -78,11 +80,12 @@ var NumberOfMessages = promauto.NewGauge(prometheus.GaugeOpts{
 })
 
 func main() {
-	db, err := sqlx.Open("sqlite3", "../db-data/sqlite-database.db") // Open the created SQLite File
+	// db, err := sqlx.Open("sqlite3", "../db-data/sqlite-database.db") // Open the created SQLite File
+	db, err := sqlx.Open("postgres", "host=localhost port=5432 user=postgres password=mysecretpassword dbname=postgres sslmode=disable")
 	if err != nil {
 		panic(err)
 	}
-	db.SetMaxOpenConns(5)
+	db.SetMaxOpenConns(10)
 	go func() {
 		for {
 			time.Sleep(time.Second)
@@ -93,7 +96,7 @@ func main() {
 	}()
 
 	defer db.Close()
-	repo := dbrepo.NewSqliteRepository(db)
+	repo := dbrepo.NewPgsqlRepository(db)
 	connMap := sync.Map{}
 	t := hub{repo: repo, connList: &connMap}
 

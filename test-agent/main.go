@@ -23,6 +23,7 @@ import (
 //// - check for correct message order
 
 const API_DOMAIN = "localhost:8080"
+
 const CHAT_WS_URL = "ws://" + API_DOMAIN + "/chat"
 const CREATE_USER_URL = "http://" + API_DOMAIN + "/user/create"
 const LIST_USERS_URL = "http://" + API_DOMAIN + "/user/list"
@@ -58,6 +59,7 @@ const TimeBetweenActions = 2000 * time.Millisecond
 const ProbCreateChat = 0.001
 const ProbAddUsers = 0.01
 const ProbSwitchChat = 0.04
+const LoadIncreaseRate = 1 // max number of users added per second
 
 func main() {
 	resp, err := http.Get(LIST_USERS_URL)
@@ -88,8 +90,8 @@ func main() {
 	st := time.Now()
 
 	for {
-		if time.Since(st) > 400*time.Millisecond {
-			NumberOfUsers += 2
+		if time.Since(st) > time.Second/LoadIncreaseRate {
+			NumberOfUsers += 1
 			st = time.Now()
 		}
 		if atomic.LoadInt32(&userCount) >= int32(NumberOfUsers) {

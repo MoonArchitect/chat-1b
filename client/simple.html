@@ -123,7 +123,7 @@
     </style>
     <script>
         var userId = null;
-        const API_DOMAIN = "http://localhost:8080";
+        const API_DOMAIN = "localhost:8080";
 
         // Chat: {
         //     id: string,
@@ -148,7 +148,7 @@
                 ws.close();
             }
             const usrId = userId;
-            const new_ws = new WebSocket(`ws://localhost:8080/chat?uid=${userId}`);
+            const new_ws = new WebSocket(`ws://${API_DOMAIN}/chat?uid=${userId}`);
             lastWsConnectionTime = Date.now();
             new_ws.onmessage = function(event) {
                 //console.log(event.data);
@@ -395,7 +395,7 @@
         // Create new user
         async function createUser() {
             try {
-                const response = await fetch(`${API_DOMAIN}/user/create`);
+                const response = await fetch(`http://${API_DOMAIN}/user/create`);
                 if (!response.ok) throw new Error('Failed to create user');
                 
                 // Clear previous user's data
@@ -575,7 +575,7 @@
         }
 
         async function fetchAllUsers() {
-            let users = await fetch(`${API_DOMAIN}/user/list`)
+            let users = await fetch(`http://${API_DOMAIN}/user/list`)
                 .then(response => response.json())
                 .then(data => {
                     return data;
