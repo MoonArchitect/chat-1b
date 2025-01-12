@@ -1,6 +1,7 @@
 package main
 
 import (
+	dbrepo "chat-1b/server/db"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -61,10 +62,6 @@ var WebSocketRequestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 	Name:    "websocket_request_duration",
 	Buckets: []float64{10, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 1000, 3000, 7000, 10000, 50000, 100000, 1000000},
 })
-var SqliteRequestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-	Name:    "sqlite_request_duration",
-	Buckets: []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 35, 40, 45, 50, 100, 300, 700, 1000, 5000, 10000, 50000, 100000, 1000000},
-})
 
 var WebSocketConnectionCount = promauto.NewGauge(prometheus.GaugeOpts{
 	Name: "websocket_connection_count",
@@ -96,7 +93,7 @@ func main() {
 	}()
 
 	defer db.Close()
-	repo := newDbRepo(db)
+	repo := dbrepo.NewSqliteRepository(db)
 	connMap := sync.Map{}
 	t := hub{repo: repo, connList: &connMap}
 
@@ -121,7 +118,7 @@ func main() {
 	fmt.Println("Exit")
 }
 
-func updateMetrics(repo IDbRepo) {
+func updateMetrics(repo dbrepo.IDbRepo) {
 	go func() {
 		for {
 			time.Sleep(time.Second)
@@ -160,7 +157,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listUsersHandler(repo IDbRepo) http.HandlerFunc {
+func listUsersHandler(repo dbrepo.IDbRepo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		users, err := repo.ListAllUsers(context.TODO())
 		if err != nil {
@@ -181,7 +178,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type hub struct {
-	repo     IDbRepo
+	repo     dbrepo.IDbRepo
 	connList *sync.Map
 }
 
@@ -216,8 +213,8 @@ type ListChatsRequest struct {
 }
 
 type ListChatsResponse struct {
-	Opcode string                  `json:"opcode"`
-	Chats  []ChatWithLatestMessage `json:"chats"`
+	Opcode string                         `json:"opcode"`
+	Chats  []dbrepo.ChatWithLatestMessage `json:"chats"` // todo don't use dbrepo types in api
 }
 
 type ListMessagesRequest struct {
@@ -226,9 +223,9 @@ type ListMessagesRequest struct {
 }
 
 type ListMessagesResponse struct {
-	Opcode   string      `json:"opcode"`
-	ChatID   string      `json:"chat_id"`
-	Messages []MessageDB `json:"messages"`
+	Opcode   string             `json:"opcode"`
+	ChatID   string             `json:"chat_id"`
+	Messages []dbrepo.MessageDB `json:"messages"`
 }
 
 type CreateChatResponse struct {

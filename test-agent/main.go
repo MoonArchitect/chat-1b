@@ -88,7 +88,7 @@ func main() {
 	st := time.Now()
 
 	for {
-		if time.Since(st) > 1*time.Second {
+		if time.Since(st) > 400*time.Millisecond {
 			NumberOfUsers += 2
 			st = time.Now()
 		}
