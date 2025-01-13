@@ -1,11 +1,11 @@
-# Grafana
+# observability dashboard (grafana + prometheus)
 
 ![Grafana](./grafana.png)
 
-# Perf
+# Performance
 
-Goal: simulate 1 billion MAU with 1 trillion messages per month
-Current basic mvp: max throughput 600msg/s (1.5B messages per month)
+#### Goal: simulate 1 billion MAU with 1 trillion messages per month
+#### Current basic mvp: max throughput 600msg/s (1.5B messages per month)
 
 # basic TODO:
 - [ ] out of curisity squeze more perf from sqlite and postgresql
@@ -16,5 +16,5 @@ Current basic mvp: max throughput 600msg/s (1.5B messages per month)
 - [ ] add inter server communication and horizontal scaling
 - [ ] add message/chat sharding
 
-idk
+idk about this:
 - [ ] proper chat client, better usability, encryption, safety guruantees, failure recovery, accurate user behaviour simulation
