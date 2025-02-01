@@ -53,13 +53,13 @@ func poolSize() int {
 
 // Configuration
 var NumberOfUsers = 10        // number of concurrent users
-const UserCreationRate = 0.04 // probability of creating a new user instead of using an existing one
+const UserCreationRate = 0.2  // probability of creating a new user instead of using an existing one
 const MeanUserOnlineTime = 60 // in seconds
-const TimeBetweenActions = 2000 * time.Millisecond
-const ProbCreateChat = 0.001
-const ProbAddUsers = 0.01
-const ProbSwitchChat = 0.04
-const LoadIncreaseRate = 1 // max number of users added per second
+const TimeBetweenActions = 1500 * time.Millisecond
+const ProbCreateChat = 0.003
+const ProbAddUsers = 0.03
+const ProbSwitchChat = 0.05
+const LoadIncreaseRate = 15 // max number of users added per second
 
 func main() {
 	resp, err := http.Get(LIST_USERS_URL)
@@ -169,7 +169,8 @@ func (u *SimulatedUser) simulateUser(userCount *int32) {
 
 	conn, _, err := websocket.DefaultDialer.Dial(CHAT_WS_URL+"?uid="+u.uid, nil)
 	if err != nil {
-		log.Fatal("fatal", err)
+		fmt.Println("fatal", err)
+		return
 	}
 	u.conn = conn
 	go u.readPump()

@@ -1,0 +1,98 @@
+version: '3.8'
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus_data: {}
+  postgres_data: {}
+  api_go_pkgs: {}
+  api_go_cache: {}
+  api_go_mod: {}
+
+services:
+  # grafana config
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    volumes:
+      - ./monitoring/grafana.ini:/etc/grafana/grafana.ini
+      - ./monitoring/dashboards:/etc/grafana/dashboards
+      - ./monitoring/provisioning:/etc/grafana/provisioning
+    ports:
+      - 3000:3000
+    command:
+      - '--config=/etc/grafana/grafana.ini'
+    networks:
+      - monitoring
+
+  # prometheus config
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - 9090:9090
+    networks:
+      - monitoring
+
+  api:
+    image: golang:latest
+    container_name: api
+    deploy:
+      resources:
+        limits:
+          cpus: '4.2'
+          memory: 8GB
+        reservations:
+          cpus: '4.2'
+          memory: 8GB
+    command: >
+      sh -c "cd /chat-1b &&
+             echo 'cd' &&
+             go mod download &&
+             echo 'downloaded' &&
+             cd server &&
+             echo 'cd again' &&
+             go build -x bin/main.go &&
+             echo 'built' &&
+             ./main"
+    volumes:
+      - ./:/chat-1b
+      - api_go_pkgs:/go
+      - api_go_cache:/root/.cache/go-build
+      - api_go_mod:/go/pkg/mod
+    ports:
+      - 8080:8080
+    networks:
+      - monitoring
+
+  chat_db:
+    image: postgres:latest
+    container_name: chat_db
+    deploy:
+      resources:
+        limits:
+          cpus: '4.2'
+          memory: 8GB
+        reservations:
+          cpus: '4.2'
+          memory: 8GB
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=mysecretpassword
+      - POSTGRES_DB=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - monitoring
+
+    

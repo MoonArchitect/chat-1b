@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/jmoiron/sqlx"
@@ -79,9 +82,40 @@ var NumberOfMessages = promauto.NewGauge(prometheus.GaugeOpts{
 	Name: "number_of_messages",
 })
 
+func getAwsSecret() string {
+	secretName := "rds!cluster-1302f671-a70b-4c48-812e-f29865805fc1"
+	region := "us-east-2"
+
+	config, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create Secrets Manager client
+	svc := secretsmanager.NewFromConfig(config)
+
+	input := &secretsmanager.GetSecretValueInput{
+		SecretId:     aws.String(secretName),
+		VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
+	}
+
+	result, err := svc.GetSecretValue(context.TODO(), input)
+	if err != nil {
+		// For a list of exceptions thrown, see
+		// https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+		log.Fatal(err.Error())
+	}
+
+	// Decrypts secret using the associated KMS key.
+	var secretString string = *result.SecretString
+	return secretString
+}
+
 func main() {
 	// db, err := sqlx.Open("sqlite3", "../db-data/sqlite-database.db") // Open the created SQLite File
-	db, err := sqlx.Open("postgres", "host=localhost port=5432 user=postgres password=mysecretpassword dbname=postgres sslmode=disable")
+	db, err := sqlx.Open("postgres", "host=host.docker.internal port=5432 user=postgres password=mysecretpassword dbname=postgres sslmode=disable")
+	// pswd := getAwsSecret()
+	// db, err := sqlx.Open("postgres", "host=database-1.cluster-cd0ck2iwiyfj.us-east-2.rds.amazonaws.com port=5432 user=postgres password="+pswd+" dbname=postgres sslmode=disable")
 	if err != nil {
 		panic(err)
 	}
@@ -342,11 +376,11 @@ func readRoutine(conn *MetricsConn, h hub, conn_uid string) {
 		}
 		err := conn.ReadJSON(&dest)
 		if err != nil {
-			fmt.Println("err: ", err)
+			// fmt.Println("err: ", err)
 			fmt.Println("closing connection due to error")
 			err = conn.Close()
 			if err != nil {
-				fmt.Println("error closing conn: ", err)
+				// fmt.Println("error closing conn: ", err)
 			}
 			break
 		}
@@ -581,7 +615,7 @@ func notifyAboutUserList(ctx context.Context, h hub, chat_id string, origin_uid 
 		resp := UserListNotification{Opcode: "user_list_notification", ChatID: chat_id, NewUserID: new_uid}
 		err = userConn.WriteJSON(resp)
 		if err != nil {
-			fmt.Println("err notifying user: ", err)
+			// fmt.Println("err notifying user: ", err)
 			continue
 		}
 	}
@@ -614,7 +648,7 @@ func notifyAboutMessage(ctx context.Context, h hub, chat_id string, text string,
 		resp := MessageNotification{Opcode: "message_notification", ChatID: chat_id, Text: text, UserID: origin_uid, CreatedAtMicro: created_at, MsgID: msg_id}
 		err = userConn.WriteJSON(resp)
 		if err != nil {
-			fmt.Println("err notifying user: ", err)
+			// fmt.Println("err notifying user: ", err)
 			continue
 		}
 	}

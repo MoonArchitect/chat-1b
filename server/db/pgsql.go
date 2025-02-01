@@ -170,6 +170,12 @@ func (r pgsqlRepository) CreateMessage(ctx context.Context, userId, chatId, text
 	return msg_id, nil
 }
 
+// 79551a0b-1232-4325-84d6-423f8b9ae249
+// b1945990-9774-4841-87ea-af9f88283bde
+// 392f8df61e8c
+
+// 500
+
 func (r pgsqlRepository) ListMessages(ctx context.Context, chatId string, page uint64) ([]MessageDB, error) {
 	query, args, err := psql.
 		Select("*").
@@ -195,19 +201,19 @@ func (r pgsqlRepository) ListMessages(ctx context.Context, chatId string, page u
 }
 
 func (r pgsqlRepository) ListChats(ctx context.Context, userId string) ([]ChatWithLatestMessage, error) {
-	subquery, args, err := squirrel.Select("chat_id", "MAX(created_at) as latest_message").
-		From(MessageTable).
-		GroupBy("chat_id").
+	subquery, args, err := squirrel.Select("chat_id").
+		From(ChatTable).
+		Where(squirrel.Eq{"user_id": userId}).
 		ToSql()
 	if err != nil {
 		return nil, err
 	}
 
 	query, args, err := psql.
-		Select("chats.chat_id", "COALESCE(latest_messages.latest_message, CAST(0 AS BIGINT)) as latest_message").
-		From(ChatTable).
-		JoinClause(fmt.Sprintf("LEFT JOIN (%s) AS latest_messages ON chats.chat_id = latest_messages.chat_id", subquery), args...).
-		Where(squirrel.Eq{"user_id": userId}).
+		Select("user_chats.chat_id", "MAX(COALESCE(messages.created_at, CAST(0 AS BIGINT))) as latest_message").
+		From(MessageTable).
+		JoinClause(fmt.Sprintf("RIGHT JOIN (%s) AS user_chats ON messages.chat_id = user_chats.chat_id", subquery), args...).
+		GroupBy("user_chats.chat_id").
 		OrderBy("latest_message DESC").
 		ToSql()
 	if err != nil {
