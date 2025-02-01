@@ -5,7 +5,7 @@
 # Performance
 
 #### Goal: simulate 1 billion MAU with 1 trillion messages per month
-#### Current basic mvp: max throughput 600msg/s (1.5B messages per month)
+#### Current basic mvp: max throughput 2000msg/s (5B messages per month)
 
 # basic TODO:
 - [ ] out of curisity squeze more perf from sqlite and postgresql

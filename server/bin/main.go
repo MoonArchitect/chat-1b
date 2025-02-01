@@ -22,6 +22,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
+	_ "net/http/pprof"
+
 	_ "github.com/lib/pq"
 )
 
@@ -119,7 +121,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	db.SetMaxOpenConns(10)
+	db.SetMaxOpenConns(100) // if this is not large enough and/or idle connections are closed, then a lot of time is wasted in opening new connections
+	// db.SetConnMaxIdleTime(time.Second * 30)
+	// db.SetMaxIdleConns(50)
 	go func() {
 		for {
 			time.Sleep(time.Second)

@@ -48,10 +48,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.2'
+          cpus: '2'
           memory: 8GB
         reservations:
-          cpus: '4.2'
+          cpus: '2'
           memory: 8GB
     command: >
       sh -c "cd /chat-1b &&
@@ -79,11 +79,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.2'
+          cpus: '4.0'
           memory: 8GB
         reservations:
-          cpus: '4.2'
+          cpus: '4.0'
           memory: 8GB
+    command: ["-c", "max_connections=500"]
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=mysecretpassword

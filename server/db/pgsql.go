@@ -51,7 +51,8 @@ func (r pgsqlRepository) NumberOfChats(ctx context.Context) (int, error) {
 
 func (r pgsqlRepository) NumberOfMessages(ctx context.Context) (int, error) {
 	var count int
-	err := r.db.GetContext(ctx, "count_messages", &count, "SELECT COUNT(DISTINCT msg_id) FROM messages")
+	// err := r.db.GetContext(ctx, "count_messages", &count, "SELECT COUNT(DISTINCT msg_id) FROM messages")
+	err := r.db.GetContext(ctx, "count_messages", &count, "SELECT FLOOR((reltuples/relpages) * (pg_relation_size('messages') / (current_setting('block_size')::integer)))::integer FROM pg_class where relname = 'messages'")
 	if err != nil {
 		return 0, err
 	}

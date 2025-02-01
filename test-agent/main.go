@@ -52,14 +52,15 @@ func poolSize() int {
 }
 
 // Configuration
-var NumberOfUsers = 10        // number of concurrent users
+var NumberOfUsers = 10 // number of concurrent users
+const MAX_USERS = 4200
 const UserCreationRate = 0.2  // probability of creating a new user instead of using an existing one
 const MeanUserOnlineTime = 60 // in seconds
 const TimeBetweenActions = 1500 * time.Millisecond
 const ProbCreateChat = 0.003
 const ProbAddUsers = 0.03
 const ProbSwitchChat = 0.05
-const LoadIncreaseRate = 15 // max number of users added per second
+const LoadIncreaseRate = 35 // max number of users added per second
 
 func main() {
 	resp, err := http.Get(LIST_USERS_URL)
@@ -91,7 +92,9 @@ func main() {
 
 	for {
 		if time.Since(st) > time.Second/LoadIncreaseRate {
-			NumberOfUsers += 1
+			if NumberOfUsers < MAX_USERS {
+				NumberOfUsers += 1
+			}
 			st = time.Now()
 		}
 		if atomic.LoadInt32(&userCount) >= int32(NumberOfUsers) {
@@ -119,7 +122,7 @@ func main() {
 		userCount += 1
 		su := &SimulatedUser{uid: uid}
 		go su.simulateUser(&userCount)
-		time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
+		// time.Sleep(time.Duration(rand.Intn(1)) * time.Millisecond)
 	}
 }
 
