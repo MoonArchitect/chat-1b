@@ -1,11 +1,18 @@
+### Goal: simulate 1 billion MAU with 1 trillion messages per month
+#### Current basic mvp: max throughput 2000msg/s (5B messages per month)
+
 # observability dashboard (grafana + prometheus)
 
 ![Grafana](./grafana.png)
 
-# Performance
+# Current (draft) system design
+![System design](./architecture.png)
 
-#### Goal: simulate 1 billion MAU with 1 trillion messages per month
-#### Current basic mvp: max throughput 2000msg/s (5B messages per month)
+# next immediate tasks:
+- [ ] move to ScyllaDB
+- [ ] move to zero-copy IO websockets with poller design
+- [ ] intra-server event pub/sub with broadcast (assumes 1 server for now)
+
 
 # basic TODO:
 - [ ] out of curisity squeze more perf from sqlite and postgresql
