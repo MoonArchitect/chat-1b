@@ -86,23 +86,23 @@ func (r sqliteRepository) NumberOfMessages(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-type ChatDB struct {
-	ChatID string `db:"chat_id"`
-	UserID string `db:"user_id"`
-}
+// type ChatDB struct {
+// 	ChatID string `db:"chat_id"`
+// 	UserID string `db:"user_id"`
+// }
 
-type MessageDB struct {
-	MsgID          string `db:"msg_id"`
-	ChatID         string `db:"chat_id"`
-	UserID         string `db:"user_id"`
-	CreatedAtMicro int64  `db:"created_at"`
-	Text           string `db:"text"`
-}
+// type MessageDB struct {
+// 	MsgID          string `db:"msg_id"`
+// 	ChatID         string `db:"chat_id"`
+// 	UserID         string `db:"user_id"`
+// 	CreatedAtMicro int64  `db:"created_at"`
+// 	Text           string `db:"text"`
+// }
 
-type UserListItem struct {
-	ID            string `db:"user_id"`
-	NumberOfChats int    `db:"count"`
-}
+// type UserListItem struct {
+// 	ID            string `db:"user_id"`
+// 	NumberOfChats int    `db:"count"`
+// }
 
 func (r sqliteRepository) ListAllUsers(ctx context.Context) ([]UserListItem, error) {
 	query, args, err := squirrel.

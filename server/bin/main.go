@@ -14,13 +14,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/gocql/gocql"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/jmoiron/sqlx"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
+	"github.com/scylladb/gocqlx"
 
 	_ "net/http/pprof"
 
@@ -84,6 +85,8 @@ var NumberOfMessages = promauto.NewGauge(prometheus.GaugeOpts{
 	Name: "number_of_messages",
 })
 
+const SYSTEM_UUID = "10000000-0000-4000-0000-000000000001"
+
 func getAwsSecret() string {
 	secretName := "rds!cluster-1302f671-a70b-4c48-812e-f29865805fc1"
 	region := "us-east-2"
@@ -115,26 +118,31 @@ func getAwsSecret() string {
 
 func main() {
 	// db, err := sqlx.Open("sqlite3", "../db-data/sqlite-database.db") // Open the created SQLite File
-	db, err := sqlx.Open("postgres", "host=host.docker.internal port=5432 user=postgres password=mysecretpassword dbname=postgres sslmode=disable")
+	// db, err := sqlx.Open("postgres", "host=host.docker.internal port=5432 user=postgres password=mysecretpassword dbname=postgres sslmode=disable")
 	// pswd := getAwsSecret()
 	// db, err := sqlx.Open("postgres", "host=database-1.cluster-cd0ck2iwiyfj.us-east-2.rds.amazonaws.com port=5432 user=postgres password="+pswd+" dbname=postgres sslmode=disable")
+	// cluster := gocql.NewCluster()
+	cluster_config := gocql.NewCluster("host.docker.internal")
+	db_sess, err := gocqlx.WrapSession(cluster_config.CreateSession())
 	if err != nil {
 		panic(err)
 	}
-	db.SetMaxOpenConns(100) // if this is not large enough and/or idle connections are closed, then a lot of time is wasted in opening new connections
+
+	// db.SetMaxOpenConns(100) // if this is not large enough and/or idle connections are closed, then a lot of time is wasted in opening new connections
 	// db.SetConnMaxIdleTime(time.Second * 30)
 	// db.SetMaxIdleConns(50)
-	go func() {
-		for {
-			time.Sleep(time.Second)
-			fmt.Println("--------------------------------")
-			fmt.Printf("%+v\n", db.Stats())
-			fmt.Println("--------------------------------")
-		}
-	}()
+	// go func() {
+	// 	for {
+	// 		time.Sleep(time.Second)
+	// 		fmt.Println("--------------------------------")
+	// 		fmt.Printf("%+v\n", db.Stats())
+	// 		fmt.Println("--------------------------------")
+	// 	}
+	// }()
+	// defer db.Close()
+	// repo := dbrepo.NewPgsqlRepository(db)
 
-	defer db.Close()
-	repo := dbrepo.NewPgsqlRepository(db)
+	repo := dbrepo.NewScylladbRepository(db_sess)
 	connMap := sync.Map{}
 	t := hub{repo: repo, connList: &connMap}
 
@@ -531,7 +539,7 @@ func readRoutine(conn *MetricsConn, h hub, conn_uid string) {
 
 			// add system message to chat
 			created_at := time.Now().UnixMicro()
-			sys_msg_id, err := h.repo.CreateMessage(ctx, "system", chat_id, "User "+uid+" added", created_at)
+			sys_msg_id, err := h.repo.CreateMessage(ctx, SYSTEM_UUID, chat_id, "User "+uid+" added", created_at)
 			if err != nil {
 				fmt.Println("err: ", err)
 				continue
@@ -543,20 +551,20 @@ func readRoutine(conn *MetricsConn, h hub, conn_uid string) {
 			//	continue
 			//}
 
-			//resp2 := CreateMessageResponse{Opcode: "message_sent", ChatID: chat_id, Text: "User " + uid + " added", UserID: "system", CreatedAtMicro: time.Now().UnixMicro(), MsgID: sys_msg_id}
+			//resp2 := CreateMessageResponse{Opcode: "message_sent", ChatID: chat_id, Text: "User " + uid + " added", UserID: SYSTEM_UUID, CreatedAtMicro: time.Now().UnixMicro(), MsgID: sys_msg_id}
 			//err = conn.WriteJSON(resp2)
 			//if err != nil {
 			//	fmt.Println("err: ", err)
 			//	continue
 			//}
 
-			err = notifyAboutMessage(ctx, h, chat_id, "User "+uid+" added", created_at, sys_msg_id, "system")
+			err = notifyAboutMessage(ctx, h, chat_id, "User "+uid+" added", created_at, sys_msg_id, SYSTEM_UUID)
 			if err != nil {
 				fmt.Println("err: ", err)
 				continue
 			}
 
-			err = notifyAboutUserList(ctx, h, chat_id, "system", uid)
+			err = notifyAboutUserList(ctx, h, chat_id, SYSTEM_UUID, uid)
 			if err != nil {
 				fmt.Println("err: ", err)
 				continue

@@ -53,14 +53,14 @@ func poolSize() int {
 
 // Configuration
 var NumberOfUsers = 10 // number of concurrent users
-const MAX_USERS = 4200
+const MAX_USERS = 8200
 const UserCreationRate = 0.2  // probability of creating a new user instead of using an existing one
 const MeanUserOnlineTime = 60 // in seconds
-const TimeBetweenActions = 1500 * time.Millisecond
+const TimeBetweenActions = 750 * time.Millisecond
 const ProbCreateChat = 0.003
 const ProbAddUsers = 0.03
 const ProbSwitchChat = 0.05
-const LoadIncreaseRate = 35 // max number of users added per second
+const LoadIncreaseRate = 100 // max number of users added per second
 
 func main() {
 	resp, err := http.Get(LIST_USERS_URL)

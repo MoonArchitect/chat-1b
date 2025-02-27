@@ -9,6 +9,7 @@
 ![System design](./architecture.png)
 
 # next immediate tasks:
+- [ ] ability to test locally + deploy to AWS
 - [ ] move to ScyllaDB
 - [ ] move to zero-copy IO websockets with poller design
 - [ ] intra-server event pub/sub with broadcast (assumes 1 server for now)

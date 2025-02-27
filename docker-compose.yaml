@@ -55,11 +55,8 @@ services:
           memory: 8GB
     command: >
       sh -c "cd /chat-1b &&
-             echo 'cd' &&
              go mod download &&
-             echo 'downloaded' &&
              cd server &&
-             echo 'cd again' &&
              go build -x bin/main.go &&
              echo 'built' &&
              ./main"
@@ -74,25 +71,21 @@ services:
       - monitoring
 
   chat_db:
-    image: postgres:latest
+    image: scylladb/scylla
     container_name: chat_db
     deploy:
       resources:
         limits:
-          cpus: '4.0'
+          cpus: '2.0'
           memory: 8GB
         reservations:
-          cpus: '4.0'
+          cpus: '2.0'
           memory: 8GB
-    command: ["-c", "max_connections=500"]
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=mysecretpassword
-      - POSTGRES_DB=postgres
+    command: ["--smp", "1", "--reactor-backend=epoll"]
     ports:
-      - "5432:5432"
+      - "9042:9042"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/scylla
     networks:
       - monitoring
 
