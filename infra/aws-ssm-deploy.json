@@ -1,0 +1,22 @@
+{
+    "schemaVersion": "2.2",
+    "description": "Deploy and run app",
+    "mainSteps": [
+      {
+        "action": "aws:runShellScript",
+        "name": "deployBackend",
+        "inputs": {
+          "runCommand": [
+            "cd /tmp",
+            "aws s3 cp s3://chat-codebase-artifacts/app.zip .",
+            "sudo unzip -o app.zip -d /opt/app",
+            "cd /opt/app",
+            "sudo go mod download",
+            "go build -x server/bin/main.go",
+            "./main"
+          ]
+        }
+      }
+    ]
+  }
+  

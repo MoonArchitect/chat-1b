@@ -2,3 +2,6 @@ db-data/*
 logs/*
 .DS_Store
 server/main
+.terraform*
+*.tfstate*
+app.zip
