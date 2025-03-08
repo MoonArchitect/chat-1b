@@ -45,6 +45,10 @@ services:
   api:
     image: golang:latest
     container_name: api
+    depends_on:
+      chat_db:
+        condition: service_healthy
+        restart: true
     deploy:
       resources:
         limits:
@@ -76,14 +80,22 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: '4.0'
           memory: 8GB
         reservations:
-          cpus: '2.0'
+          cpus: '4.0'
           memory: 8GB
-    command: ["--smp", "1", "--reactor-backend=epoll"]
+    command: ["--smp", "4", "--reactor-backend=epoll"]
+    healthcheck:
+      test: ["CMD", "curl", "-X", "GET", "http://localhost:10000/system/uptime_ms"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 2
+      start_period: 10s
+      start_interval: 5s
     ports:
       - "9042:9042"
+      - "10000:10000"
     volumes:
       - postgres_data:/var/lib/scylla
     networks:

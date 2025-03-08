@@ -11,9 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/gocql/gocql"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -77,60 +74,12 @@ var WebSocketConnectionCount = promauto.NewGauge(prometheus.GaugeOpts{
 
 const SYSTEM_UUID = "10000000-0000-4000-0000-000000000001"
 
-func getAwsSecret() string {
-	secretName := "rds!cluster-1302f671-a70b-4c48-812e-f29865805fc1"
-	region := "us-east-2"
-
-	config, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Create Secrets Manager client
-	svc := secretsmanager.NewFromConfig(config)
-
-	input := &secretsmanager.GetSecretValueInput{
-		SecretId:     aws.String(secretName),
-		VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
-	}
-
-	result, err := svc.GetSecretValue(context.TODO(), input)
-	if err != nil {
-		// For a list of exceptions thrown, see
-		// https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
-		log.Fatal(err.Error())
-	}
-
-	// Decrypts secret using the associated KMS key.
-	var secretString string = *result.SecretString
-	return secretString
-}
-
 func main() {
-	// db, err := sqlx.Open("sqlite3", "../db-data/sqlite-database.db") // Open the created SQLite File
-	// db, err := sqlx.Open("postgres", "host=host.docker.internal port=5432 user=postgres password=mysecretpassword dbname=postgres sslmode=disable")
-	// pswd := getAwsSecret()
-	// db, err := sqlx.Open("postgres", "host=database-1.cluster-cd0ck2iwiyfj.us-east-2.rds.amazonaws.com port=5432 user=postgres password="+pswd+" dbname=postgres sslmode=disable")
-	// cluster := gocql.NewCluster()
 	cluster_config := gocql.NewCluster("host.docker.internal")
 	db_sess, err := gocqlx.WrapSession(cluster_config.CreateSession())
 	if err != nil {
 		panic(err)
 	}
-
-	// db.SetMaxOpenConns(100) // if this is not large enough and/or idle connections are closed, then a lot of time is wasted in opening new connections
-	// db.SetConnMaxIdleTime(time.Second * 30)
-	// db.SetMaxIdleConns(50)
-	// go func() {
-	// 	for {
-	// 		time.Sleep(time.Second)
-	// 		fmt.Println("--------------------------------")
-	// 		fmt.Printf("%+v\n", db.Stats())
-	// 		fmt.Println("--------------------------------")
-	// 	}
-	// }()
-	// defer db.Close()
-	// repo := dbrepo.NewPgsqlRepository(db)
 
 	repo := dbrepo.NewScylladbRepository(db_sess)
 	connMap := sync.Map{}
@@ -144,10 +93,10 @@ func main() {
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"*"},
 	})
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("GET /metrics", promhttp.Handler())
 	http.Handle("/chat", corsMiddleware.Handler(http.HandlerFunc(t.wsHandler)))
-	http.Handle("/user/create", corsMiddleware.Handler(http.HandlerFunc(createUserHandler)))
-	http.Handle("/user/list", corsMiddleware.Handler(http.HandlerFunc(listUsersHandler(repo))))
+	http.Handle("GET /user/create", corsMiddleware.Handler(http.HandlerFunc(createUserHandler)))
+	http.Handle("GET /user/list", corsMiddleware.Handler(http.HandlerFunc(listUsersHandler(repo))))
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatal(err)
