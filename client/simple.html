@@ -124,6 +124,7 @@
     <script>
         var userId = null;
         const API_DOMAIN = "localhost:8080";
+        const WS_DOMAIN = "localhost:8081";
 
         // Chat: {
         //     id: string,
@@ -148,7 +149,7 @@
                 ws.close();
             }
             const usrId = userId;
-            const new_ws = new WebSocket(`ws://${API_DOMAIN}/chat?uid=${userId}`);
+            const new_ws = new WebSocket(`ws://${WS_DOMAIN}/chat?uid=${userId}`);
             lastWsConnectionTime = Date.now();
             new_ws.onmessage = function(event) {
                 //console.log(event.data);

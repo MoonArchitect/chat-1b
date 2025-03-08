@@ -71,6 +71,7 @@ services:
       - api_go_mod:/go/pkg/mod
     ports:
       - 8080:8080
+      - 8081:8081
     networks:
       - monitoring
 
