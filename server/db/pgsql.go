@@ -31,7 +31,8 @@ func NewPgsqlRepository(db *sqlx.DB) IDbRepo {
 // get users in a chat -> list user-id by chat-id
 // paginate messages from a chat -> get messages by chat-id
 
-func (r pgsqlRepository) NumberOfUsers(ctx context.Context) (int, error) {
+// TODO: rowSplit is not implemented, hence broken, hence stats returned are inflated
+func (r pgsqlRepository) NumberOfUsers(ctx context.Context, rowSplit int) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_users", &count, "SELECT COUNT(DISTINCT user_id) FROM chats")
 	if err != nil {
@@ -40,7 +41,8 @@ func (r pgsqlRepository) NumberOfUsers(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (r pgsqlRepository) NumberOfChats(ctx context.Context) (int, error) {
+// TODO: rowSplit is not implemented, hence broken, hence stats returned are inflated
+func (r pgsqlRepository) NumberOfChats(ctx context.Context, rowSplit int) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_chats", &count, "SELECT COUNT(DISTINCT chat_id) FROM chats")
 	if err != nil {
@@ -49,7 +51,8 @@ func (r pgsqlRepository) NumberOfChats(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (r pgsqlRepository) NumberOfMessages(ctx context.Context) (int, error) {
+// TODO: rowSplit is not implemented, hence broken, hence stats returned are inflated
+func (r pgsqlRepository) NumberOfMessages(ctx context.Context, rowSplit int) (int, error) {
 	var count int
 	// err := r.db.GetContext(ctx, "count_messages", &count, "SELECT COUNT(DISTINCT msg_id) FROM messages")
 	err := r.db.GetContext(ctx, "count_messages", &count, "SELECT FLOOR((reltuples/relpages) * (pg_relation_size('messages') / (current_setting('block_size')::integer)))::integer FROM pg_class where relname = 'messages'")

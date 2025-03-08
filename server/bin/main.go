@@ -75,16 +75,6 @@ var WebSocketConnectionCount = promauto.NewGauge(prometheus.GaugeOpts{
 	Name: "websocket_connection_count",
 })
 
-var NumberOfUsers = promauto.NewGauge(prometheus.GaugeOpts{
-	Name: "number_of_users",
-})
-var NumberOfChats = promauto.NewGauge(prometheus.GaugeOpts{
-	Name: "number_of_chats",
-})
-var NumberOfMessages = promauto.NewGauge(prometheus.GaugeOpts{
-	Name: "number_of_messages",
-})
-
 const SYSTEM_UUID = "10000000-0000-4000-0000-000000000001"
 
 func getAwsSecret() string {
@@ -147,7 +137,6 @@ func main() {
 	t := hub{repo: repo, connList: &connMap}
 
 	fmt.Println("Starting the server")
-	updateMetrics(repo)
 
 	// add middleware to handle CORS
 	corsMiddleware := cors.New(cors.Options{
@@ -165,34 +154,6 @@ func main() {
 	}
 
 	fmt.Println("Exit")
-}
-
-func updateMetrics(repo dbrepo.IDbRepo) {
-	go func() {
-		for {
-			time.Sleep(time.Second)
-			numUsers, err := repo.NumberOfUsers(context.TODO())
-			if err != nil {
-				fmt.Println("error: failed to get number of users: ", err)
-				continue
-			}
-			NumberOfUsers.Set(float64(numUsers))
-
-			numChats, err := repo.NumberOfChats(context.TODO())
-			if err != nil {
-				fmt.Println("error: failed to get number of chats: ", err)
-				continue
-			}
-			NumberOfChats.Set(float64(numChats))
-
-			numMessages, err := repo.NumberOfMessages(context.TODO())
-			if err != nil {
-				fmt.Println("error: failed to get number of messages: ", err)
-				continue
-			}
-			NumberOfMessages.Set(float64(numMessages))
-		}
-	}()
 }
 
 func createUserHandler(w http.ResponseWriter, r *http.Request) {

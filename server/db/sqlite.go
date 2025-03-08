@@ -59,7 +59,8 @@ func NewSqliteRepository(db *sqlx.DB) IDbRepo {
 // get users in a chat -> list user-id by chat-id
 // paginate messages from a chat -> get messages by chat-id
 
-func (r sqliteRepository) NumberOfUsers(ctx context.Context) (int, error) {
+// TODO: rowSplit is not implemented, hence broken, hence stats returned are inflated
+func (r sqliteRepository) NumberOfUsers(ctx context.Context, rowSplit int) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_users", &count, "SELECT COUNT(DISTINCT user_id) FROM chats")
 	if err != nil {
@@ -68,7 +69,8 @@ func (r sqliteRepository) NumberOfUsers(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (r sqliteRepository) NumberOfChats(ctx context.Context) (int, error) {
+// TODO: rowSplit is not implemented, hence broken, hence stats returned are inflated
+func (r sqliteRepository) NumberOfChats(ctx context.Context, rowSplit int) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_chats", &count, "SELECT COUNT(DISTINCT chat_id) FROM chats")
 	if err != nil {
@@ -77,7 +79,8 @@ func (r sqliteRepository) NumberOfChats(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (r sqliteRepository) NumberOfMessages(ctx context.Context) (int, error) {
+// TODO: rowSplit is not implemented, hence broken, hence stats returned are inflated
+func (r sqliteRepository) NumberOfMessages(ctx context.Context, rowSplit int) (int, error) {
 	var count int
 	err := r.db.GetContext(ctx, "count_messages", &count, "SELECT COUNT(DISTINCT msg_id) FROM messages")
 	if err != nil {

@@ -16,9 +16,9 @@ type IDbRepo interface {
 	CreateMessage(ctx context.Context, userId, chatId, text string, createdAtMicro int64) (string, error)
 	ListMessages(ctx context.Context, chatId string, page uint64) ([]MessageDB, error)
 
-	NumberOfUsers(ctx context.Context) (int, error)
-	NumberOfChats(ctx context.Context) (int, error)
-	NumberOfMessages(ctx context.Context) (int, error)
+	// NumberOfUsers(ctx context.Context, rowSplit int) (int, error)
+	// NumberOfChats(ctx context.Context, rowSplit int) (int, error)
+	// NumberOfMessages(ctx context.Context, rowSplit int) (int, error)
 }
 
 var SqliteRequestDuration = promauto.NewHistogramVec(

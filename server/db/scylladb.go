@@ -267,44 +267,49 @@ func (r scylladbRepository) ListMessages(ctx context.Context, chatId string, pag
 	return msgs, nil
 }
 
-func (r scylladbRepository) NumberOfUsers(ctx context.Context) (int, error) {
-	start := time.Now()
-	defer func() {
-		duration := time.Since(start)
-		SqliteRequestDuration.WithLabelValues("NumberOfUsers").Observe(float64(duration.Milliseconds()))
-	}()
+// const MIN_TOKEN_RANGE int64 = -9223372036854775807
+// const MAX_TOKEN_RANGE int64 = 9223372036854775807
 
-	var count int
-	if err := r.db.Session.Query(`SELECT COUNT(*) FROM main_db.users`).Scan(&count); err != nil {
-		return 0, fmt.Errorf("NumberOfUsers: %w", err)
-	}
-	return count, nil
-}
+// func (r scylladbRepository) NumberOfUsers(ctx context.Context, rowSplit int) (int, error) {
+// 	start := time.Now()
+// 	defer func() {
+// 		duration := time.Since(start)
+// 		SqliteRequestDuration.WithLabelValues("NumberOfUsers").Observe(float64(duration.Milliseconds()))
+// 	}()
 
-func (r scylladbRepository) NumberOfChats(ctx context.Context) (int, error) {
-	start := time.Now()
-	defer func() {
-		duration := time.Since(start)
-		SqliteRequestDuration.WithLabelValues("NumberOfChats").Observe(float64(duration.Milliseconds()))
-	}()
+// 	cql := fmt.Sprintf(`SELECT COUNT(*) FROM main_db.users WHERE token(id) >= -9204925292781066255 AND token(id) <= 9223372036854775807 USING TIMEOUT 1s BYPASS CACHE`)
 
-	var count int
-	if err := r.db.Session.Query(`SELECT COUNT(*) FROM main_db.chats`).Scan(&count); err != nil {
-		return 0, fmt.Errorf("NumberOfChats: %w", err)
-	}
-	return count, nil
-}
+// 	var count int
+// 	if err := r.db.Session.Query(cql).Scan(&count); err != nil {
+// 		return 0, fmt.Errorf("NumberOfUsers: %w", err)
+// 	}
+// 	return count, nil
+// }
 
-func (r scylladbRepository) NumberOfMessages(ctx context.Context) (int, error) {
-	start := time.Now()
-	defer func() {
-		duration := time.Since(start)
-		SqliteRequestDuration.WithLabelValues("NumberOfMessages").Observe(float64(duration.Milliseconds()))
-	}()
+// func (r scylladbRepository) NumberOfChats(ctx context.Context, rowSplit int) (int, error) {
+// 	start := time.Now()
+// 	defer func() {
+// 		duration := time.Since(start)
+// 		SqliteRequestDuration.WithLabelValues("NumberOfChats").Observe(float64(duration.Milliseconds()))
+// 	}()
 
-	var count int
-	if err := r.db.Session.Query(`SELECT COUNT(*) FROM main_db.messages`).Scan(&count); err != nil {
-		return 0, fmt.Errorf("NumberOfMessages: %w", err)
-	}
-	return count, nil
-}
+// 	var count int
+// 	if err := r.db.Session.Query(`SELECT COUNT(*) FROM main_db.chats`).Scan(&count); err != nil {
+// 		return 0, fmt.Errorf("NumberOfChats: %w", err)
+// 	}
+// 	return count, nil
+// }
+
+// func (r scylladbRepository) NumberOfMessages(ctx context.Context, rowSplit int) (int, error) {
+// 	start := time.Now()
+// 	defer func() {
+// 		duration := time.Since(start)
+// 		SqliteRequestDuration.WithLabelValues("NumberOfMessages").Observe(float64(duration.Milliseconds()))
+// 	}()
+
+// 	var count int
+// 	if err := r.db.Session.Query(`SELECT COUNT(*) FROM main_db.messages`).Scan(&count); err != nil {
+// 		return 0, fmt.Errorf("NumberOfMessages: %w", err)
+// 	}
+// 	return count, nil
+// }
