@@ -3,7 +3,6 @@ package main
 import (
 	dbrepo "chat-1b/server/db"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +10,8 @@ import (
 	"reflect"
 	"sync"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 
 	"github.com/gocql/gocql"
 	"github.com/google/uuid"
@@ -152,7 +153,7 @@ func listUsersHandler(repo dbrepo.IDbRepo) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(users)
+		jsoniter.NewEncoder(w).Encode(users)
 	}
 }
 
@@ -319,7 +320,7 @@ func NewMetricsConn(conn *websocket.Conn) *MetricsConn {
 func (m *MetricsConn) ReadJSON(p []byte, v interface{}) error {
 	WebSocketReadRequestCount.Inc()
 	WebSocketMessageBytesRead.Observe(float64(len(p)))
-	err := json.Unmarshal(p, v)
+	err := jsoniter.Unmarshal(p, v)
 	if err != nil {
 		return err
 	}
@@ -331,7 +332,7 @@ func (m *MetricsConn) ReadJSON(p []byte, v interface{}) error {
 func (m *MetricsConn) WriteJSON(v interface{}) error {
 	m.m.Lock()
 	defer m.m.Unlock()
-	data, err := json.Marshal(v)
+	data, err := jsoniter.Marshal(v)
 	if err != nil {
 		return err
 	}
