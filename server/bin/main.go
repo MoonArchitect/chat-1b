@@ -2,6 +2,7 @@ package main
 
 import (
 	dbrepo "chat-1b/server/db"
+	"chat-1b/server/utils/flatbuffer_types/WebsocketMessage"
 	"context"
 	"fmt"
 	"hash/fnv"
@@ -15,6 +16,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 
 	"github.com/gocql/gocql"
+	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/google/uuid"
 	"github.com/lesismal/nbio/nbhttp"
 	"github.com/lesismal/nbio/nbhttp/websocket"
@@ -236,76 +238,63 @@ func (h hub) wsHandler(w http.ResponseWriter, r *http.Request) {
 	ChatEndpointRequestCount.Inc()
 }
 
-type CreateChatRequest struct {
-	UID string `json:"uid"`
-}
-
-type ListChatsRequest struct {
-	UID string `json:"uid"`
-}
-
-type ListMessagesRequest struct {
-	ChatID string `json:"chat_id"`
-	Page   uint64 `json:"page"`
-}
-
 type ListChatsResponse struct {
-	Opcode string                         `json:"opcode"`
-	Chats  []dbrepo.ChatWithLatestMessage `json:"chats"` // todo don't use dbrepo types in api
+	Opcode string
+	Chats  []dbrepo.ChatWithLatestMessage // todo don't use dbrepo types in api
 }
 
 type ListMessagesResponse struct {
-	Opcode   string             `json:"opcode"`
-	ChatID   string             `json:"chat_id"`
-	Messages []dbrepo.MessageDB `json:"messages"`
+	Opcode   string
+	ChatID   string
+	Messages []dbrepo.MessageDB
 }
 
 type CreateChatResponse struct {
-	Opcode string `json:"opcode"`
-	ChatID string `json:"chat_id"`
+	Opcode string
+	ChatID string
 }
 
 type ListUsersResponse struct {
-	Opcode string   `json:"opcode"`
-	Users  []string `json:"users"`
-	ChatID string   `json:"chat_id"`
+	Opcode string
+	Users  []string
+	ChatID string
 }
 
 type CreateMessageResponse struct {
-	Opcode         string `json:"opcode"`
-	ChatID         string `json:"chat_id"`
-	Text           string `json:"text"`
-	UserID         string `json:"user_id"`
-	CreatedAtMicro int64  `json:"created_at"`
-	MsgID          string `json:"msg_id"`
+	Opcode         string
+	ChatID         string
+	Text           string
+	UserID         string
+	CreatedAtMicro int64
+	MsgID          string
 }
 
 type AddUserResponse struct {
-	Opcode string `json:"opcode"`
-	ChatID string `json:"chat_id"`
-	UserID string `json:"user_id"`
+	Opcode string
+	ChatID string
+	UserID string
 }
 
 type MessageNotification struct {
-	Opcode         string `json:"opcode"`
-	ChatID         string `json:"chat_id"`
-	Text           string `json:"text"`
-	UserID         string `json:"user_id"`
-	CreatedAtMicro int64  `json:"created_at"`
-	MsgID          string `json:"msg_id"`
+	Opcode         string
+	ChatID         string
+	Text           string
+	UserID         string
+	CreatedAtMicro int64
+	MsgID          string
 }
 
 type UserListNotification struct {
-	Opcode    string `json:"opcode"`
-	ChatID    string `json:"chat_id"`
-	NewUserID string `json:"new_user_id"`
+	Opcode    string
+	ChatID    string
+	NewUserID string
 }
 
 type ChatListNotification struct {
-	Opcode       string `json:"opcode"`
-	ChatID       string `json:"chat_id"`
-	UserID       string `json:"user_id"`
-	LastActivity int64  `json:"last_activity"`
+	Opcode       string
+	ChatID       string
+	UserID       string
+	LastActivity int64
 }
 
 // MetricsConn wraps a websocket.Conn with metrics
@@ -322,12 +311,87 @@ func NewMetricsConn(conn *websocket.Conn, uid string) *MetricsConn {
 }
 
 // ReadMessage wraps the underlying ReadMessage with metrics
-func (m *MetricsConn) ReadJSON(p []byte, v interface{}) error {
+func (m *MetricsConn) ReadMessage(p []byte, v interface{}) error {
 	WebSocketReadRequestCount.Inc()
 	WebSocketMessageBytesRead.Observe(float64(len(p)))
-	err := jsoniter.Unmarshal(p, v)
-	if err != nil {
-		return err
+
+	msg := WebsocketMessage.GetRootAsMessage(p, 0)
+
+	dest, ok := v.(*struct {
+		Opcode string                 `json:"opcode"`
+		Data   map[string]interface{} `json:"data"`
+	})
+	if !ok {
+		return fmt.Errorf("invalid destination type")
+	}
+
+	switch msg.PayloadType() {
+	case WebsocketMessage.PayloadSendMessageRequest:
+		obj := new(WebsocketMessage.SendMessageRequest)
+		t := obj.Table()
+		msg.Payload(&t)
+		obj.Init(t.Bytes, t.Pos)
+		dest.Opcode = "send_message"
+		dest.Data = map[string]interface{}{
+			"uid":     string(obj.Uid()),
+			"chat_id": string(obj.ChatId()),
+			"text":    string(obj.Text()),
+		}
+
+	case WebsocketMessage.PayloadListChatsRequest:
+		obj := new(WebsocketMessage.ListChatsRequest)
+		t := obj.Table()
+		msg.Payload(&t)
+		obj.Init(t.Bytes, t.Pos)
+		dest.Opcode = "list_chats"
+		dest.Data = map[string]interface{}{
+			"uid": string(obj.Uid()),
+		}
+
+	case WebsocketMessage.PayloadListMessagesRequest:
+		obj := new(WebsocketMessage.ListMessagesRequest)
+		t := obj.Table()
+		msg.Payload(&t)
+		obj.Init(t.Bytes, t.Pos)
+		dest.Opcode = "list_messages"
+		dest.Data = map[string]interface{}{
+			"chat_id": string(obj.ChatId()),
+			"page":    float64(obj.Page()),
+		}
+
+	case WebsocketMessage.PayloadListUsersRequest:
+		obj := new(WebsocketMessage.ListUsersRequest)
+		t := obj.Table()
+		msg.Payload(&t)
+		obj.Init(t.Bytes, t.Pos)
+		dest.Opcode = "list_users"
+		dest.Data = map[string]interface{}{
+			"chat_id": string(obj.ChatId()),
+		}
+
+	case WebsocketMessage.PayloadCreateChatRequest:
+		obj := new(WebsocketMessage.CreateChatRequest)
+		t := obj.Table()
+		msg.Payload(&t)
+		obj.Init(t.Bytes, t.Pos)
+		dest.Opcode = "create_chat"
+		dest.Data = map[string]interface{}{
+			"uid": string(obj.Uid()),
+		}
+
+	case WebsocketMessage.PayloadAddUserRequest:
+		obj := new(WebsocketMessage.AddUserRequest)
+		t := obj.Table()
+		msg.Payload(&t)
+		obj.Init(t.Bytes, t.Pos)
+		dest.Opcode = "add_user"
+		dest.Data = map[string]interface{}{
+			"chat_id": string(obj.ChatId()),
+			"user_id": string(obj.UserId()),
+		}
+
+	default:
+		return fmt.Errorf("unknown payload type: %v", msg.PayloadType())
 	}
 
 	return nil
@@ -356,15 +420,166 @@ func hash_uuid(uuid string) int {
 }
 
 func (m *MetricsConn) SendMessageAsync(v interface{}) error {
-	data, err := jsoniter.Marshal(v)
-	if err != nil {
-		return err
+	builder := flatbuffers.NewBuilder(1024)
+
+	var offset flatbuffers.UOffsetT
+	var payloadType WebsocketMessage.Payload
+
+	switch msg := v.(type) {
+	case ListChatsResponse:
+		chats := make([]flatbuffers.UOffsetT, len(msg.Chats))
+		for i, chat := range msg.Chats {
+			chatID := builder.CreateString(chat.ChatID)
+			WebsocketMessage.ChatWithLatestMessageStart(builder)
+			WebsocketMessage.ChatWithLatestMessageAddChatId(builder, chatID)
+			WebsocketMessage.ChatWithLatestMessageAddLatestMessageAt(builder, chat.LatestMessageAt)
+			chats[i] = WebsocketMessage.ChatWithLatestMessageEnd(builder)
+		}
+
+		WebsocketMessage.ListChatsResponseStartChatsVector(builder, len(chats))
+		for i := len(chats) - 1; i >= 0; i-- {
+			builder.PrependUOffsetT(chats[i])
+		}
+		chatsVector := builder.EndVector(len(chats))
+
+		WebsocketMessage.ListChatsResponseStart(builder)
+		WebsocketMessage.ListChatsResponseAddChats(builder, chatsVector)
+		offset = WebsocketMessage.ListChatsResponseEnd(builder)
+		payloadType = WebsocketMessage.PayloadListChatsResponse
+
+	case ListMessagesResponse:
+		chatID := builder.CreateString(msg.ChatID)
+		messages := make([]flatbuffers.UOffsetT, len(msg.Messages))
+
+		for i, message := range msg.Messages {
+			msgID := builder.CreateString(message.MsgID)
+			msgChatID := builder.CreateString(message.ChatID)
+			userID := builder.CreateString(message.UserID)
+			text := builder.CreateString(message.Text)
+
+			WebsocketMessage.MessageDBStart(builder)
+			WebsocketMessage.MessageDBAddMsgId(builder, msgID)
+			WebsocketMessage.MessageDBAddChatId(builder, msgChatID)
+			WebsocketMessage.MessageDBAddUserId(builder, userID)
+			WebsocketMessage.MessageDBAddText(builder, text)
+			WebsocketMessage.MessageDBAddCreatedAtMicro(builder, message.CreatedAtMicro)
+			messages[i] = WebsocketMessage.MessageDBEnd(builder)
+		}
+
+		WebsocketMessage.ListMessagesResponseStartMessagesVector(builder, len(messages))
+		for i := len(messages) - 1; i >= 0; i-- {
+			builder.PrependUOffsetT(messages[i])
+		}
+		messagesVector := builder.EndVector(len(messages))
+
+		WebsocketMessage.ListMessagesResponseStart(builder)
+		WebsocketMessage.ListMessagesResponseAddChatId(builder, chatID)
+		WebsocketMessage.ListMessagesResponseAddMessages(builder, messagesVector)
+		offset = WebsocketMessage.ListMessagesResponseEnd(builder)
+		payloadType = WebsocketMessage.PayloadListMessagesResponse
+
+	case ListUsersResponse:
+		chatID := builder.CreateString(msg.ChatID)
+		users := make([]flatbuffers.UOffsetT, len(msg.Users))
+		for i, user := range msg.Users {
+			users[i] = builder.CreateString(user)
+		}
+
+		WebsocketMessage.ListUsersResponseStartUsersVector(builder, len(users))
+		for i := len(users) - 1; i >= 0; i-- {
+			builder.PrependUOffsetT(users[i])
+		}
+		usersVector := builder.EndVector(len(users))
+
+		WebsocketMessage.ListUsersResponseStart(builder)
+		WebsocketMessage.ListUsersResponseAddUsers(builder, usersVector)
+		WebsocketMessage.ListUsersResponseAddChatId(builder, chatID)
+		offset = WebsocketMessage.ListUsersResponseEnd(builder)
+		payloadType = WebsocketMessage.PayloadListUsersResponse
+
+	case CreateChatResponse:
+		chatID := builder.CreateString(msg.ChatID)
+		WebsocketMessage.CreateChatResponseStart(builder)
+		WebsocketMessage.CreateChatResponseAddChatId(builder, chatID)
+		offset = WebsocketMessage.CreateChatResponseEnd(builder)
+		payloadType = WebsocketMessage.PayloadCreateChatResponse
+
+	case CreateMessageResponse:
+		chatID := builder.CreateString(msg.ChatID)
+		text := builder.CreateString(msg.Text)
+		userID := builder.CreateString(msg.UserID)
+		msgID := builder.CreateString(msg.MsgID)
+
+		WebsocketMessage.CreateMessageResponseStart(builder)
+		WebsocketMessage.CreateMessageResponseAddChatId(builder, chatID)
+		WebsocketMessage.CreateMessageResponseAddText(builder, text)
+		WebsocketMessage.CreateMessageResponseAddUserId(builder, userID)
+		WebsocketMessage.CreateMessageResponseAddCreatedAtMicro(builder, msg.CreatedAtMicro)
+		WebsocketMessage.CreateMessageResponseAddMsgId(builder, msgID)
+		offset = WebsocketMessage.CreateMessageResponseEnd(builder)
+		payloadType = WebsocketMessage.PayloadCreateMessageResponse
+
+	case AddUserResponse:
+		chatID := builder.CreateString(msg.ChatID)
+		userID := builder.CreateString(msg.UserID)
+
+		WebsocketMessage.AddUserResponseStart(builder)
+		WebsocketMessage.AddUserResponseAddChatId(builder, chatID)
+		WebsocketMessage.AddUserResponseAddUserId(builder, userID)
+		offset = WebsocketMessage.AddUserResponseEnd(builder)
+		payloadType = WebsocketMessage.PayloadAddUserResponse
+
+	case MessageNotification:
+		chatID := builder.CreateString(msg.ChatID)
+		text := builder.CreateString(msg.Text)
+		userID := builder.CreateString(msg.UserID)
+		msgID := builder.CreateString(msg.MsgID)
+
+		WebsocketMessage.MessageNotificationStart(builder)
+		WebsocketMessage.MessageNotificationAddChatId(builder, chatID)
+		WebsocketMessage.MessageNotificationAddText(builder, text)
+		WebsocketMessage.MessageNotificationAddUserId(builder, userID)
+		WebsocketMessage.MessageNotificationAddCreatedAtMicro(builder, msg.CreatedAtMicro)
+		WebsocketMessage.MessageNotificationAddMsgId(builder, msgID)
+		offset = WebsocketMessage.MessageNotificationEnd(builder)
+		payloadType = WebsocketMessage.PayloadMessageNotification
+
+	case UserListNotification:
+		chatID := builder.CreateString(msg.ChatID)
+		newUserID := builder.CreateString(msg.NewUserID)
+
+		WebsocketMessage.UserListNotificationStart(builder)
+		WebsocketMessage.UserListNotificationAddChatId(builder, chatID)
+		WebsocketMessage.UserListNotificationAddNewUserId(builder, newUserID)
+		offset = WebsocketMessage.UserListNotificationEnd(builder)
+		payloadType = WebsocketMessage.PayloadUserListNotification
+
+	case ChatListNotification:
+		chatID := builder.CreateString(msg.ChatID)
+		userID := builder.CreateString(msg.UserID)
+
+		WebsocketMessage.ChatListNotificationStart(builder)
+		WebsocketMessage.ChatListNotificationAddChatId(builder, chatID)
+		WebsocketMessage.ChatListNotificationAddUserId(builder, userID)
+		WebsocketMessage.ChatListNotificationAddLastActivity(builder, msg.LastActivity)
+		offset = WebsocketMessage.ChatListNotificationEnd(builder)
+		payloadType = WebsocketMessage.PayloadChatListNotification
 	}
+
+	WebsocketMessage.MessageStart(builder)
+	WebsocketMessage.MessageAddPayloadType(builder, payloadType)
+	WebsocketMessage.MessageAddPayload(builder, offset)
+	messageOffset := WebsocketMessage.MessageEnd(builder)
+
+	builder.Finish(messageOffset)
+	bytes := builder.FinishedBytes()
+
 	i := hash_uuid(m.uid) % N_WORKERS
 	chPool[i] <- Task{
 		conn:    m.conn,
-		payload: data,
+		payload: bytes,
 	}
+
 	return nil
 }
 
@@ -420,7 +635,7 @@ func websocketWriteWorker(ch <-chan Task) {
 			{
 				WebSocketWriteRequestCount.Inc()
 				WebSocketMessageBytesWritten.Observe(float64(len(task.payload)))
-				task.conn.WriteMessage(websocket.TextMessage, task.payload)
+				task.conn.WriteMessage(websocket.BinaryMessage, task.payload)
 			}
 		}
 	}
@@ -432,7 +647,7 @@ func readRoutine(conn *MetricsConn, h hub, data []byte) {
 		Opcode string                 `json:"opcode"`
 		Data   map[string]interface{} `json:"data"`
 	}
-	err := conn.ReadJSON(data, &dest)
+	err := conn.ReadMessage(data, &dest)
 	if err != nil {
 		// fmt.Println("err: ", err)
 		fmt.Println("closing connection due to error")

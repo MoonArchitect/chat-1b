@@ -2,6 +2,14 @@
     <head>
         <!-- temp while developing -->
         <!-- <meta http-equiv="refresh" content="1" > -->
+        <!-- <script src="></script> -->
+        <script type="module">
+            import { WebsocketMessage } from './ws_msg.js';
+            import { flatbuffers } from './flatbuffers.js';
+
+            window.WebsocketMessage = WebsocketMessage;
+            window.flatbuffers = flatbuffers;
+        </script>
     </head>
     <body>
         <div id="login-container"></div>
@@ -150,107 +158,176 @@
             }
             const usrId = userId;
             const new_ws = new WebSocket(`ws://${WS_DOMAIN}/chat?uid=${userId}`);
+            new_ws.binaryType = "arraybuffer";
             lastWsConnectionTime = Date.now();
             new_ws.onmessage = function(event) {
-                //console.log(event.data);
-                let data = JSON.parse(event.data);
-                if (data.opcode === "chat_list") {
-                    let chatList = data.chats;
-                    chatList?.forEach(chat => {
-                        let missing = !chats.find(c => c.id === chat.ChatID);
-                        if (missing) {
-                            chat = { id: chat.ChatID, lastMessageTimestamp: chat.LatestMessageAt / 1000, users: [], messages: [] };
-                            chats.push(chat);
+                const data = new Uint8Array(event.data);
+                const buf = new flatbuffers.ByteBuffer(data);
+                const message = WebsocketMessage.Message.getRootAsMessage(buf);
+                
+                switch(message.payloadType()) {
+                    case WebsocketMessage.Payload.ListChatsResponse: {
+                        const resp = new WebsocketMessage.ListChatsResponse();
+                        if (message.payload(resp)) {
+                            let chatList = [];
+                            for(let i = 0; i < resp.chatsLength(); i++) {
+                                const chat = resp.chats(i);
+                                chatList.push({
+                                    ChatID: chat.chatId(),
+                                    LatestMessageAt: chat.latestMessageAt()
+                                });
+                            }
+                            chatList?.forEach(chat => {
+                                let missing = !chats.find(c => c.id === chat.ChatID);
+                                if (missing) {
+                                    chat = { 
+                                        id: chat.ChatID, 
+                                        lastMessageTimestamp: Number(chat.LatestMessageAt) / 1000, 
+                                        users: [], 
+                                        messages: [] 
+                                    };
+                                    chats.push(chat);
+                                }
+                            });
+                            drawChatList();
+                            drawChatData();
+                            if (selectedChat === null && chats.length > 0) {
+                                selectChat(chats[0].id);
+                            }
                         }
-                    });
-                    drawChatList();
-                    drawChatData();
-                    if (selectedChat === null && chats.length > 0) {
-                        selectChat(chats[0].id);
+                        break;
                     }
-                } else if (data.opcode === "chat_created") {
-                    requestLoadChats();
-                } else if (data.opcode === "chat_messages") {
-                    let chatData = data.messages
-                    let chatId = data.chat_id
-                    let chat = chats.find(c => c.id === chatId);
-                    if (chat) {
-                        chat.messages = chatData;
-                        drawChatData();
+                    
+                    case WebsocketMessage.Payload.CreateChatResponse: {
+                        requestLoadChats();
+                        break;
                     }
-                } else if (data.opcode === "chat_users") {
-                    let chatData = data.users
-                    let chatId = data.chat_id
-                    let chat = chats.find(c => c.id === chatId);
-                    if (chat) {
-                        chat.users = chatData;
-                        drawChatData();
-                    }
-                } else if (data.opcode === "message_sent") {
-                    let chatId = data.chat_id
-                    let chat = chats.find(c => c.id === chatId);
-                    if (chat) {
-                        if (!chat.messages) {
-                            chat.messages = [];
+                    
+                    case WebsocketMessage.Payload.ListMessagesResponse: {
+                        const resp = new WebsocketMessage.ListMessagesResponse();
+                        if (message.payload(resp)) {
+                            const chatId = resp.chatId();
+                            let chat = chats.find(c => c.id === chatId);
+                            if (chat) {
+                                chat.messages = [];
+                                for(let i = 0; i < resp.messagesLength(); i++) {
+                                    const msg = resp.messages(i);
+                                    chat.messages.push({
+                                        MsgID: msg.msgId(),
+                                        ChatID: msg.chatId(),
+                                        UserID: msg.userId(),
+                                        CreatedAtMicro: msg.createdAtMicro(),
+                                        Text: msg.text()
+                                    });
+                                }
+                                drawChatData();
+                            }
                         }
-                        chat.lastMessageTimestamp = data.created_at / 1000;
-                        chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
-                        chat.messages.push({
-                            UserID: data.user_id,
-                            CreatedAtMicro: data.created_at,
-                            Text: data.text,
-                            ChatID: data.chat_id,
-                            MsgID: data.msg_id
-                        });
+                        break;
                     }
-                    drawChatData();
-                    drawChatList();
-                } else if (data.opcode === "user_added") {
-                    let chatId = data.chat_id
-                    let chat = chats.find(c => c.id === chatId);
-                    if (chat) {
-                        chat.users.push(data.user_id);
-                        drawChatData();
-                        drawChatList();
+                    
+                    case WebsocketMessage.Payload.ListUsersResponse: {
+                        const resp = new WebsocketMessage.ListUsersResponse();
+                        if (message.payload(resp)) {
+                            const chatId = resp.chatId();
+                            let chat = chats.find(c => c.id === chatId);
+                            if (chat) {
+                                chat.users = [];
+                                for(let i = 0; i < resp.usersLength(); i++) {
+                                    chat.users.push(resp.users(i));
+                                }
+                                drawChatData();
+                            }
+                        }
+                        break;
                     }
-                } else if (data.opcode === "message_notification") {
-                    let chatId = data.chat_id
-                    let chat = chats.find(c => c.id === chatId);
-                    if (chat) {
-                        chat.lastMessageTimestamp = data.created_at / 1000;
-                        chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
-                        chat.messages.push({
-                            UserID: data.user_id,
-                            CreatedAtMicro: data.created_at,
-                            Text: data.text,
-                            ChatID: data.chat_id,
-                            MsgID: data.msg_id
-                        });
-                        drawChatData();
-                        drawChatList();
+                    
+                    case WebsocketMessage.Payload.CreateMessageResponse: {
+                        const resp = new WebsocketMessage.CreateMessageResponse();
+                        if (message.payload(resp)) {
+                            const chatId = resp.chatId();
+                            let chat = chats.find(c => c.id === chatId);
+                            if (chat) {
+                                if (!chat.messages) {
+                                    chat.messages = [];
+                                }
+                                chat.lastMessageTimestamp = Number(resp.createdAtMicro()) / 1000;
+                                chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+                                chat.messages.push({
+                                    UserID: resp.userId(),
+                                    CreatedAtMicro: resp.createdAtMicro(),
+                                    Text: resp.text(),
+                                    ChatID: resp.chatId(),
+                                    MsgID: resp.msgId()
+                                });
+                            }
+                            drawChatData();
+                            drawChatList();
+                        }
+                        break;
                     }
-                } else if (data.opcode === "chat_list_notification") {
-                    const missing = !chats.find(c => c.id === data.chat_id);
-                    if (missing) {
-                        chat = { id: data.chat_id, lastMessageTimestamp: data.last_activity / 1000, users: [], messages: [] };
-                        chats.push(chat);
-                        chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+                    
+                    case WebsocketMessage.Payload.MessageNotification: {
+                        const notif = new WebsocketMessage.MessageNotification();
+                        if (message.payload(notif)) {
+                            const chatId = notif.chatId();
+                            let chat = chats.find(c => c.id === chatId);
+                            if (chat) {
+                                chat.lastMessageTimestamp = Number(notif.createdAtMicro()) / 1000;
+                                chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+                                chat.messages.push({
+                                    UserID: notif.userId(),
+                                    CreatedAtMicro: notif.createdAtMicro(),
+                                    Text: notif.text(),
+                                    ChatID: notif.chatId(),
+                                    MsgID: notif.msgId()
+                                });
+                                drawChatData();
+                                drawChatList();
+                            }
+                        }
+                        break;
                     }
-                    drawChatList();
-                    if (selectedChat === null && chats.length > 0) {
-                        console.log("selecting chat: ", chats[0].id);
-                        selectChat(chats[0].id);
+                    
+                    case WebsocketMessage.Payload.ChatListNotification: {
+                        const notif = new WebsocketMessage.ChatListNotification();
+                        if (message.payload(notif)) {
+                            const missing = !chats.find(c => c.id === notif.chatId());
+                            if (missing) {
+                                chat = { 
+                                    id: notif.chatId(), 
+                                    lastMessageTimestamp: Number(notif.lastActivity()) / 1000, 
+                                    users: [], 
+                                    messages: [] 
+                                };
+                                chats.push(chat);
+                                chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+                            }
+                            drawChatList();
+                            if (selectedChat === null && chats.length > 0) {
+                                console.log("selecting chat: ", chats[0].id);
+                                selectChat(chats[0].id);
+                            }
+                        }
+                        break;
                     }
-                } else if (data.opcode === "user_list_notification") {
-                    let chatId = data.chat_id
-                    let chat = chats.find(c => c.id === chatId);
-                    if (chat) {
-                        chat.users.push(data.new_user_id);
-                        drawChatData();
-                        drawChatList();
+                    
+                    case WebsocketMessage.Payload.UserListNotification: {
+                        const notif = new WebsocketMessage.UserListNotification();
+                        if (message.payload(notif)) {
+                            const chatId = notif.chatId();
+                            let chat = chats.find(c => c.id === chatId);
+                            if (chat) {
+                                chat.users.push(notif.newUserId());
+                                drawChatData();
+                                drawChatList();
+                            }
+                        }
+                        break;
                     }
-                } else {
-                    console.log("unknown opcode: ", data.opcode);
+                    
+                    default:
+                        console.log("unknown payload type: ", message.payloadType());
                 }
             }
 
@@ -276,6 +353,10 @@
                 //}
             }
 
+            new_ws.onopen = function() {
+                ws = new_ws;
+            };
+
             ws = new_ws;
             while (ws.readyState === WebSocket.CONNECTING) {
                 console.log("Waiting for WebSocket to connect...");
@@ -283,18 +364,36 @@
             }
         }
 
+        function createFlatBufferBuilder() {
+            return new flatbuffers.Builder(1024);
+        }
+
+        function sendFlatBufferMessage(builder, messageOffset) {
+            builder.finish(messageOffset);
+            ws.send(builder.asUint8Array());
+        }
+
         function addUserToChat() {
             const user = document.getElementById("user-input").value;
             if (user.trim() === "") {
                 return;
             }
-            ws.send(JSON.stringify({
-                opcode: "add_user",
-                data: {
-                    chat_id: selectedChat.id,
-                    user_id: user
-                }
-            }));
+            
+            const builder = createFlatBufferBuilder();
+            const chatId = builder.createString(selectedChat.id);
+            const userId = builder.createString(user);
+            
+            WebsocketMessage.AddUserRequest.startAddUserRequest(builder);
+            WebsocketMessage.AddUserRequest.addChatId(builder, chatId);
+            WebsocketMessage.AddUserRequest.addUserId(builder, userId);
+            const requestOffset = WebsocketMessage.AddUserRequest.endAddUserRequest(builder);
+            
+            WebsocketMessage.Message.startMessage(builder);
+            WebsocketMessage.Message.addPayloadType(builder, WebsocketMessage.Payload.AddUserRequest);
+            WebsocketMessage.Message.addPayload(builder, requestOffset);
+            const messageOffset = WebsocketMessage.Message.endMessage(builder);
+            
+            sendFlatBufferMessage(builder, messageOffset);
         }
 
         function sendMessageCallback() {
@@ -307,23 +406,39 @@
         }
 
         function sendMessage(chatId, message) {
-            ws.send(JSON.stringify({
-                opcode: "send_message",
-                data: {
-                    chat_id: chatId,
-                    uid: userId,
-                    text: message
-                }
-            }));
+            const builder = createFlatBufferBuilder();
+            const chatIdOffset = builder.createString(chatId);
+            const uidOffset = builder.createString(userId);
+            const textOffset = builder.createString(message);
+            
+            WebsocketMessage.SendMessageRequest.startSendMessageRequest(builder);
+            WebsocketMessage.SendMessageRequest.addChatId(builder, chatIdOffset);
+            WebsocketMessage.SendMessageRequest.addUid(builder, uidOffset);
+            WebsocketMessage.SendMessageRequest.addText(builder, textOffset);
+            const requestOffset = WebsocketMessage.SendMessageRequest.endSendMessageRequest(builder);
+            
+            WebsocketMessage.Message.startMessage(builder);
+            WebsocketMessage.Message.addPayloadType(builder, WebsocketMessage.Payload.SendMessageRequest);
+            WebsocketMessage.Message.addPayload(builder, requestOffset);
+            const messageOffset = WebsocketMessage.Message.endMessage(builder);
+            
+            sendFlatBufferMessage(builder, messageOffset);
         }
 
         function createChat() {
-            ws.send(JSON.stringify({
-                opcode: "create_chat",
-                data: {
-                    uid: userId
-                }
-            }));
+            const builder = createFlatBufferBuilder();
+            const uidOffset = builder.createString(userId);
+            
+            WebsocketMessage.CreateChatRequest.startCreateChatRequest(builder);
+            WebsocketMessage.CreateChatRequest.addUid(builder, uidOffset);
+            const requestOffset = WebsocketMessage.CreateChatRequest.endCreateChatRequest(builder);
+            
+            WebsocketMessage.Message.startMessage(builder);
+            WebsocketMessage.Message.addPayloadType(builder, WebsocketMessage.Payload.CreateChatRequest);
+            WebsocketMessage.Message.addPayload(builder, requestOffset);
+            const messageOffset = WebsocketMessage.Message.endMessage(builder);
+            
+            sendFlatBufferMessage(builder, messageOffset);
         }
         
         // Initialize login container
@@ -418,32 +533,52 @@
         }
 
         function requestLoadChats() {
-            // loadDummyChats();
-            ws.send(JSON.stringify({
-                opcode: "list_chats",
-                data: {
-                    uid: userId
-                }
-            }));
+            const builder = createFlatBufferBuilder();
+            const uidOffset = builder.createString(userId);
+            
+            WebsocketMessage.ListChatsRequest.startListChatsRequest(builder);
+            WebsocketMessage.ListChatsRequest.addUid(builder, uidOffset);
+            const requestOffset = WebsocketMessage.ListChatsRequest.endListChatsRequest(builder);
+            
+            WebsocketMessage.Message.startMessage(builder);
+            WebsocketMessage.Message.addPayloadType(builder, WebsocketMessage.Payload.ListChatsRequest);
+            WebsocketMessage.Message.addPayload(builder, requestOffset);
+            const messageOffset = WebsocketMessage.Message.endMessage(builder);
+            
+            sendFlatBufferMessage(builder, messageOffset);
         }
 
         function requestLoadMessages(chatId) {
-            ws.send(JSON.stringify({
-                opcode: "list_messages",
-                data: {
-                    chat_id: chatId,
-                    page: 0
-                }
-            }));
+            const builder = createFlatBufferBuilder();
+            const chatIdOffset = builder.createString(chatId);
+            
+            WebsocketMessage.ListMessagesRequest.startListMessagesRequest(builder);
+            WebsocketMessage.ListMessagesRequest.addChatId(builder, chatIdOffset);
+            // WebsocketMessage.ListMessagesRequest.addPage(builder, 0);
+            const requestOffset = WebsocketMessage.ListMessagesRequest.endListMessagesRequest(builder);
+            
+            WebsocketMessage.Message.startMessage(builder);
+            WebsocketMessage.Message.addPayloadType(builder, WebsocketMessage.Payload.ListMessagesRequest);
+            WebsocketMessage.Message.addPayload(builder, requestOffset);
+            const messageOffset = WebsocketMessage.Message.endMessage(builder);
+            
+            sendFlatBufferMessage(builder, messageOffset);
         }
 
         function requestLoadUsers(chatId) {
-            ws.send(JSON.stringify({
-                opcode: "list_users",
-                data: {
-                    chat_id: chatId
-                }
-            }));
+            const builder = createFlatBufferBuilder();
+            const chatIdOffset = builder.createString(chatId);
+            
+            WebsocketMessage.ListUsersRequest.startListUsersRequest(builder);
+            WebsocketMessage.ListUsersRequest.addChatId(builder, chatIdOffset);
+            const requestOffset = WebsocketMessage.ListUsersRequest.endListUsersRequest(builder);
+            
+            WebsocketMessage.Message.startMessage(builder);
+            WebsocketMessage.Message.addPayloadType(builder, WebsocketMessage.Payload.ListUsersRequest);
+            WebsocketMessage.Message.addPayload(builder, requestOffset);
+            const messageOffset = WebsocketMessage.Message.endMessage(builder);
+            
+            sendFlatBufferMessage(builder, messageOffset);
         }
 
         // Move dummy chat creation to a separate function
@@ -546,7 +681,7 @@
 
             // Add all messages from the selected chat
             selectedChat?.messages?.forEach(msg => {
-                addMessage(msg.UserID, msg.CreatedAtMicro / 1000, msg.Text);
+                addMessage(msg.UserID, Number(msg.CreatedAtMicro) / 1000, msg.Text);
             });
 
             // Scroll to bottom on initial load

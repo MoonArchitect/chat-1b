@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chat-1b/server/utils/flatbuffer_types/WebsocketMessage"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/gorilla/websocket"
 	"golang.org/x/exp/rand"
 )
@@ -122,6 +124,7 @@ func main() {
 
 		userCount += 1
 		su := &SimulatedUser{uid: uid}
+		fmt.Println(uid)
 		go su.simulateUser(&userCount)
 		// time.Sleep(time.Duration(rand.Intn(1)) * time.Millisecond)
 	}
@@ -140,25 +143,36 @@ type SimulatedUser struct {
 
 func (u *SimulatedUser) readPump() {
 	for {
-		var dest map[string]interface{}
-		err := u.conn.ReadJSON(&dest)
+		_, p, err := u.conn.ReadMessage()
 		if err != nil {
-			fmt.Println("error reading json: ", err)
-			return // todo: proper handling of conn
+			fmt.Println("error reading message: ", err)
+			return
 		}
-		if dest["opcode"] == "chat_list" {
-			if dest["chats"] == nil {
-				continue
+
+		msg := WebsocketMessage.GetRootAsMessage(p, 0)
+		var table flatbuffers.Table
+		msg.Payload(&table)
+
+		switch msg.PayloadType() {
+		case WebsocketMessage.PayloadListChatsResponse:
+			resp := new(WebsocketMessage.ListChatsResponse)
+			resp.Init(table.Bytes, table.Pos)
+			for i := 0; i < resp.ChatsLength(); i++ {
+				var chat WebsocketMessage.ChatWithLatestMessage
+				if resp.Chats(&chat, i) {
+					u.chatIds = append(u.chatIds, string(chat.ChatId()))
+				}
 			}
-			chats := dest["chats"].([]interface{})
-			for _, raw_chat := range chats {
-				chat := raw_chat.(map[string]interface{})
-				u.chatIds = append(u.chatIds, chat["ChatID"].(string))
-			}
-		} else if dest["opcode"] == "chat_list_notification" {
-			u.chatIds = append(u.chatIds, dest["chat_id"].(string))
-		} else if dest["opcode"] == "chat_created" {
-			u.chatIds = append(u.chatIds, dest["chat_id"].(string))
+
+		case WebsocketMessage.PayloadChatListNotification:
+			var notif WebsocketMessage.ChatListNotification
+			notif.Init(table.Bytes, table.Pos)
+			u.chatIds = append(u.chatIds, string(notif.ChatId()))
+
+		case WebsocketMessage.PayloadCreateChatResponse:
+			var resp WebsocketMessage.CreateChatResponse
+			resp.Init(table.Bytes, table.Pos)
+			u.chatIds = append(u.chatIds, string(resp.ChatId()))
 		}
 	}
 }
@@ -221,56 +235,120 @@ eventLoop:
 	fmt.Println("Done", u.uid, onlineTime)
 }
 
-type ListChatsRequest struct {
-	Opcode string                 `json:"opcode"`
-	Data   map[string]interface{} `json:"data"`
-}
-
 func listChats(uid string, conn *websocket.Conn) {
-	conn.WriteJSON(ListChatsRequest{Opcode: "list_chats", Data: map[string]interface{}{"uid": uid}})
-}
+	builder := flatbuffers.NewBuilder(1024)
 
-type ListMessagesRequest struct {
-	Opcode string                 `json:"opcode"`
-	Data   map[string]interface{} `json:"data"`
+	// Create the ListChatsRequest
+	uidOffset := builder.CreateString(uid)
+	WebsocketMessage.ListChatsRequestStart(builder)
+	WebsocketMessage.ListChatsRequestAddUid(builder, uidOffset)
+	request := WebsocketMessage.ListChatsRequestEnd(builder)
+
+	// Create the Message wrapper
+	WebsocketMessage.MessageStart(builder)
+	WebsocketMessage.MessageAddOpcode(builder, WebsocketMessage.OpcodeLIST_CHATS_REQUEST)
+	WebsocketMessage.MessageAddPayloadType(builder, WebsocketMessage.PayloadListChatsRequest)
+	WebsocketMessage.MessageAddPayload(builder, request)
+	msg := WebsocketMessage.MessageEnd(builder)
+
+	builder.Finish(msg)
+	conn.WriteMessage(websocket.BinaryMessage, builder.FinishedBytes())
 }
 
 func listMessages(chat_id string, conn *websocket.Conn) {
-	conn.WriteJSON(ListMessagesRequest{Opcode: "list_messages", Data: map[string]interface{}{"chat_id": chat_id, "page": 0}})
-}
+	builder := flatbuffers.NewBuilder(1024)
 
-type SendMessageRequest struct {
-	Opcode string                 `json:"opcode"`
-	Data   map[string]interface{} `json:"data"`
+	chatIDOffset := builder.CreateString(chat_id)
+	WebsocketMessage.ListMessagesRequestStart(builder)
+	WebsocketMessage.ListMessagesRequestAddChatId(builder, chatIDOffset)
+	WebsocketMessage.ListMessagesRequestAddPage(builder, 0)
+	request := WebsocketMessage.ListMessagesRequestEnd(builder)
+
+	WebsocketMessage.MessageStart(builder)
+	WebsocketMessage.MessageAddOpcode(builder, WebsocketMessage.OpcodeLIST_MESSAGES_REQUEST)
+	WebsocketMessage.MessageAddPayloadType(builder, WebsocketMessage.PayloadListMessagesRequest)
+	WebsocketMessage.MessageAddPayload(builder, request)
+	msg := WebsocketMessage.MessageEnd(builder)
+
+	builder.Finish(msg)
+	conn.WriteMessage(websocket.BinaryMessage, builder.FinishedBytes())
 }
 
 func sendMessage(uid string, chat_id string, text string, conn *websocket.Conn) {
-	conn.WriteJSON(SendMessageRequest{Opcode: "send_message", Data: map[string]interface{}{"uid": uid, "chat_id": chat_id, "text": text}})
-}
+	builder := flatbuffers.NewBuilder(1024)
 
-type ListUsersRequest struct {
-	Opcode string                 `json:"opcode"`
-	Data   map[string]interface{} `json:"data"`
+	textOffset := builder.CreateString(text)
+	uidOffset := builder.CreateString(uid)
+	chatIDOffset := builder.CreateString(chat_id)
+
+	WebsocketMessage.SendMessageRequestStart(builder)
+	WebsocketMessage.SendMessageRequestAddText(builder, textOffset)
+	WebsocketMessage.SendMessageRequestAddUid(builder, uidOffset)
+	WebsocketMessage.SendMessageRequestAddChatId(builder, chatIDOffset)
+	request := WebsocketMessage.SendMessageRequestEnd(builder)
+
+	WebsocketMessage.MessageStart(builder)
+	WebsocketMessage.MessageAddOpcode(builder, WebsocketMessage.OpcodeSEND_MESSAGE_REQUEST)
+	WebsocketMessage.MessageAddPayloadType(builder, WebsocketMessage.PayloadSendMessageRequest)
+	WebsocketMessage.MessageAddPayload(builder, request)
+	msg := WebsocketMessage.MessageEnd(builder)
+
+	builder.Finish(msg)
+	conn.WriteMessage(websocket.BinaryMessage, builder.FinishedBytes())
 }
 
 func listUsers(chat_id string, conn *websocket.Conn) {
-	conn.WriteJSON(ListUsersRequest{Opcode: "list_users", Data: map[string]interface{}{"chat_id": chat_id}})
-}
+	builder := flatbuffers.NewBuilder(1024)
 
-type CreateChatRequest struct {
-	Opcode string                 `json:"opcode"`
-	Data   map[string]interface{} `json:"data"`
+	chatIDOffset := builder.CreateString(chat_id)
+	WebsocketMessage.ListUsersRequestStart(builder)
+	WebsocketMessage.ListUsersRequestAddChatId(builder, chatIDOffset)
+	request := WebsocketMessage.ListUsersRequestEnd(builder)
+
+	WebsocketMessage.MessageStart(builder)
+	WebsocketMessage.MessageAddOpcode(builder, WebsocketMessage.OpcodeLIST_USERS_REQUEST)
+	WebsocketMessage.MessageAddPayloadType(builder, WebsocketMessage.PayloadListUsersRequest)
+	WebsocketMessage.MessageAddPayload(builder, request)
+	msg := WebsocketMessage.MessageEnd(builder)
+
+	builder.Finish(msg)
+	conn.WriteMessage(websocket.BinaryMessage, builder.FinishedBytes())
 }
 
 func createChat(uid string, conn *websocket.Conn) {
-	conn.WriteJSON(CreateChatRequest{Opcode: "create_chat", Data: map[string]interface{}{"uid": uid}})
-}
+	builder := flatbuffers.NewBuilder(1024)
 
-type AddUserRequest struct {
-	Opcode string                 `json:"opcode"`
-	Data   map[string]interface{} `json:"data"`
+	uidOffset := builder.CreateString(uid)
+	WebsocketMessage.CreateChatRequestStart(builder)
+	WebsocketMessage.CreateChatRequestAddUid(builder, uidOffset)
+	request := WebsocketMessage.CreateChatRequestEnd(builder)
+
+	WebsocketMessage.MessageStart(builder)
+	WebsocketMessage.MessageAddOpcode(builder, WebsocketMessage.OpcodeCREATE_CHAT_REQUEST)
+	WebsocketMessage.MessageAddPayloadType(builder, WebsocketMessage.PayloadCreateChatRequest)
+	WebsocketMessage.MessageAddPayload(builder, request)
+	msg := WebsocketMessage.MessageEnd(builder)
+
+	builder.Finish(msg)
+	conn.WriteMessage(websocket.BinaryMessage, builder.FinishedBytes())
 }
 
 func addUser(chat_id string, uid string, conn *websocket.Conn) {
-	conn.WriteJSON(AddUserRequest{Opcode: "add_user", Data: map[string]interface{}{"chat_id": chat_id, "user_id": uid}})
+	builder := flatbuffers.NewBuilder(1024)
+
+	uidOffset := builder.CreateString(uid)
+	chatIDOffset := builder.CreateString(chat_id)
+	WebsocketMessage.AddUserRequestStart(builder)
+	WebsocketMessage.AddUserRequestAddUserId(builder, uidOffset)
+	WebsocketMessage.AddUserRequestAddChatId(builder, chatIDOffset)
+	request := WebsocketMessage.AddUserRequestEnd(builder)
+
+	WebsocketMessage.MessageStart(builder)
+	WebsocketMessage.MessageAddOpcode(builder, WebsocketMessage.OpcodeADD_USER_REQUEST)
+	WebsocketMessage.MessageAddPayloadType(builder, WebsocketMessage.PayloadAddUserRequest)
+	WebsocketMessage.MessageAddPayload(builder, request)
+	msg := WebsocketMessage.MessageEnd(builder)
+
+	builder.Finish(msg)
+	conn.WriteMessage(websocket.BinaryMessage, builder.FinishedBytes())
 }

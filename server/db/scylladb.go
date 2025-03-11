@@ -149,7 +149,7 @@ func (r scylladbRepository) ListAllUsers(ctx context.Context) ([]UserListItem, e
 	}()
 
 	var users []UserDB
-	q := r.db.Query("SELECT user_id, chats FROM main_db.users", []string{"user_id", "chats"})
+	q := r.db.Query("SELECT user_id, chats FROM main_db.users LIMIT 500000", []string{"user_id", "chats"})
 	if err := q.SelectRelease(&users); err != nil {
 		return nil, fmt.Errorf("ListAllUsers: %w", err)
 	}

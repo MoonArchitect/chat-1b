@@ -247,7 +247,7 @@ func (r sqliteRepository) ListMessages(ctx context.Context, chatId string, page 
 
 type ChatWithLatestMessage struct {
 	ChatID          string `db:"chat_id"`
-	LatestMessageAt int64  `db:"latest_message"`
+	LatestMessageAt int64  `db:"latest_message_at"`
 }
 
 func (r sqliteRepository) ListChats(ctx context.Context, userId string) ([]ChatWithLatestMessage, error) {
