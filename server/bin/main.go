@@ -4,6 +4,7 @@ import (
 	dbrepo "chat-1b/server/db"
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
@@ -97,6 +98,8 @@ func main() {
 	t := hub{repo: repo, connList: &connMap}
 
 	fmt.Println("Starting the server")
+
+	startWorkerPool()
 
 	// add middleware to handle CORS
 	corsMiddleware := cors.New(cors.Options{
@@ -227,7 +230,7 @@ func (h hub) wsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metricsConn := NewMetricsConn(conn)
+	metricsConn := NewMetricsConn(conn, uid)
 	conn.SetSession(WebsocketSession{h: &h, uid: uid, metricsConn: metricsConn})
 	h.connList.Store(uid, metricsConn)
 	ChatEndpointRequestCount.Inc()
@@ -241,14 +244,14 @@ type ListChatsRequest struct {
 	UID string `json:"uid"`
 }
 
-type ListChatsResponse struct {
-	Opcode string                         `json:"opcode"`
-	Chats  []dbrepo.ChatWithLatestMessage `json:"chats"` // todo don't use dbrepo types in api
-}
-
 type ListMessagesRequest struct {
 	ChatID string `json:"chat_id"`
 	Page   uint64 `json:"page"`
+}
+
+type ListChatsResponse struct {
+	Opcode string                         `json:"opcode"`
+	Chats  []dbrepo.ChatWithLatestMessage `json:"chats"` // todo don't use dbrepo types in api
 }
 
 type ListMessagesResponse struct {
@@ -307,13 +310,15 @@ type ChatListNotification struct {
 
 // MetricsConn wraps a websocket.Conn with metrics
 type MetricsConn struct {
+	uid  string
 	conn *websocket.Conn
-	m    *sync.Mutex
+	// m    *sync.Mutex
 }
 
 // NewMetricsConn creates a new MetricsConn
-func NewMetricsConn(conn *websocket.Conn) *MetricsConn {
-	return &MetricsConn{conn: conn, m: &sync.Mutex{}}
+func NewMetricsConn(conn *websocket.Conn, uid string) *MetricsConn {
+	return &MetricsConn{conn: conn, uid: uid}
+	// return &MetricsConn{conn: conn, m: &sync.Mutex{}, uid: uid}
 }
 
 // ReadMessage wraps the underlying ReadMessage with metrics
@@ -329,19 +334,38 @@ func (m *MetricsConn) ReadJSON(p []byte, v interface{}) error {
 }
 
 // WriteMessage wraps the underlying WriteMessage with metrics
-func (m *MetricsConn) WriteJSON(v interface{}) error {
-	m.m.Lock()
-	defer m.m.Unlock()
+// func (m *MetricsConn) WriteJSON(v interface{}) error {
+// 	m.m.Lock()
+// 	defer m.m.Unlock()
+// 	data, err := jsoniter.Marshal(v)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	err = m.conn.WriteMessage(websocket.TextMessage, data)
+// 	if err == nil {
+// 		WebSocketWriteRequestCount.Inc()
+// 		WebSocketMessageBytesWritten.Observe(float64(len(data)))
+// 	}
+// 	return err
+// }
+
+func hash_uuid(uuid string) int {
+	h := fnv.New32a()
+	h.Write([]byte(uuid))
+	return int(h.Sum32())
+}
+
+func (m *MetricsConn) SendMessageAsync(v interface{}) error {
 	data, err := jsoniter.Marshal(v)
 	if err != nil {
 		return err
 	}
-	err = m.conn.WriteMessage(websocket.TextMessage, data)
-	if err == nil {
-		WebSocketWriteRequestCount.Inc()
-		WebSocketMessageBytesWritten.Observe(float64(len(data)))
+	i := hash_uuid(m.uid) % N_WORKERS
+	chPool[i] <- Task{
+		conn:    m.conn,
+		payload: data,
 	}
-	return err
+	return nil
 }
 
 // Close delegates to the underlying connection
@@ -355,6 +379,52 @@ func (m *MetricsConn) Close() error {
 //  - perform business logic
 //  - push task to notify other users
 // writer_pool -> takes tasks and writes to connections
+
+// task stream of (user_id, msg *byte)
+// - if the stream has multiple task with the same user_id it should be processed by either the same goroutine or in a blocking fashion to avoid expensive sync between primitives
+// -> have N task streams, task is put into stream based on hash(user_id) % N
+// -> have M workers in a pool, each is responsible for N/M streams
+
+const N_WORKERS = 10
+
+var chPool []chan Task
+
+type Task struct {
+	conn    *websocket.Conn
+	payload []byte
+}
+
+func startWorkerPool() []chan Task {
+	for i := 0; i < N_WORKERS; i++ {
+		ch := make(chan Task, 10000)
+		chPool = append(chPool, ch)
+		go websocketWriteWorker(ch)
+	}
+
+	go func() {
+		for {
+			for i := 0; i < N_WORKERS; i++ {
+				fmt.Println("Channel length: ", len(chPool[i]))
+			}
+			time.Sleep(5 * time.Second)
+		}
+	}()
+
+	return chPool
+}
+
+func websocketWriteWorker(ch <-chan Task) {
+	for {
+		select {
+		case task := <-ch:
+			{
+				WebSocketWriteRequestCount.Inc()
+				WebSocketMessageBytesWritten.Observe(float64(len(task.payload)))
+				task.conn.WriteMessage(websocket.TextMessage, task.payload)
+			}
+		}
+	}
+}
 
 func readRoutine(conn *MetricsConn, h hub, data []byte) {
 	ctx := context.TODO()
@@ -391,7 +461,7 @@ func readRoutine(conn *MetricsConn, h hub, data []byte) {
 		}
 		resp := ListChatsResponse{Opcode: "chat_list", Chats: chatIds}
 
-		err = conn.WriteJSON(resp)
+		err = conn.SendMessageAsync(resp)
 		if err != nil {
 			fmt.Println("err: ", err)
 			return
@@ -417,7 +487,7 @@ func readRoutine(conn *MetricsConn, h hub, data []byte) {
 
 		resp := ListMessagesResponse{Opcode: "chat_messages", Messages: messages, ChatID: chat_id}
 
-		err = conn.WriteJSON(resp)
+		err = conn.SendMessageAsync(resp)
 		if err != nil {
 			fmt.Println("err: ", err)
 			return
@@ -435,7 +505,7 @@ func readRoutine(conn *MetricsConn, h hub, data []byte) {
 			return
 		}
 		resp := ListUsersResponse{Opcode: "chat_users", Users: users, ChatID: chat_id}
-		err = conn.WriteJSON(resp)
+		err = conn.SendMessageAsync(resp)
 		if err != nil {
 			fmt.Println("err: ", err)
 			return
@@ -465,7 +535,7 @@ func readRoutine(conn *MetricsConn, h hub, data []byte) {
 		}
 
 		resp := CreateMessageResponse{Opcode: "message_sent", ChatID: chat_id, Text: text, UserID: uid, CreatedAtMicro: created_at, MsgID: msg_id}
-		err = conn.WriteJSON(resp)
+		err = conn.SendMessageAsync(resp)
 		if err != nil {
 			fmt.Println("err: ", err)
 			return
@@ -490,7 +560,7 @@ func readRoutine(conn *MetricsConn, h hub, data []byte) {
 			return
 		}
 		resp := CreateChatResponse{Opcode: "chat_created", ChatID: chat_id}
-		err = conn.WriteJSON(resp)
+		err = conn.SendMessageAsync(resp)
 		if err != nil {
 			fmt.Println("err: ", err)
 			return
@@ -522,7 +592,7 @@ func readRoutine(conn *MetricsConn, h hub, data []byte) {
 			return
 		}
 		//resp := AddUserResponse{Opcode: "user_added", ChatID: chat_id, UserID: uid}
-		//err = conn.WriteJSON(resp)
+		//err = conn.SendMessageAsync(resp)
 		//if err != nil {
 		//	fmt.Println("err: ", err)
 		//	continue
@@ -570,7 +640,7 @@ func notifyAboutChatList(h hub, chat_id string, uid string, lastActivity int64) 
 	}
 
 	resp := ChatListNotification{Opcode: "chat_list_notification", ChatID: chat_id, UserID: uid, LastActivity: lastActivity}
-	err := userConn.WriteJSON(resp)
+	err := userConn.SendMessageAsync(resp)
 	if err != nil {
 		return fmt.Errorf("failed to notify user: %s", uid)
 	}
@@ -601,7 +671,7 @@ func notifyAboutUserList(ctx context.Context, h hub, chat_id string, origin_uid 
 		}
 
 		resp := UserListNotification{Opcode: "user_list_notification", ChatID: chat_id, NewUserID: new_uid}
-		err = userConn.WriteJSON(resp)
+		err = userConn.SendMessageAsync(resp)
 		if err != nil {
 			// fmt.Println("err notifying user: ", err)
 			continue
@@ -634,7 +704,7 @@ func notifyAboutMessage(ctx context.Context, h hub, chat_id string, text string,
 		}
 
 		resp := MessageNotification{Opcode: "message_notification", ChatID: chat_id, Text: text, UserID: origin_uid, CreatedAtMicro: created_at, MsgID: msg_id}
-		err = userConn.WriteJSON(resp)
+		err = userConn.SendMessageAsync(resp)
 		if err != nil {
 			// fmt.Println("err notifying user: ", err)
 			continue

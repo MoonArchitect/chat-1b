@@ -52,10 +52,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
+          cpus: '1'
           memory: 8GB
         reservations:
-          cpus: '2'
+          cpus: '1'
           memory: 8GB
     command: >
       sh -c "cd /chat-1b &&

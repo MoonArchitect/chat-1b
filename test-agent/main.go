@@ -54,7 +54,7 @@ func poolSize() int {
 
 // Configuration
 var NumberOfUsers = 10 // number of concurrent users
-const MAX_USERS = 500
+const MAX_USERS = 1700
 const UserCreationRate = 0.2  // probability of creating a new user instead of using an existing one
 const MeanUserOnlineTime = 60 // in seconds
 const TimeBetweenActions = 750 * time.Millisecond
@@ -206,8 +206,8 @@ eventLoop:
 			listUsers(chat_id, u.conn)
 		} else {
 			chat_id := u.chatIds[rand.Intn(len(u.chatIds))]
-			msgLen := max(1, rand.NormFloat64()*10+20)
-			sendMessage(u.uid, chat_id, strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", int(msgLen)), u.conn)
+			msgLen := max(1, rand.NormFloat64()*10+5)
+			sendMessage(u.uid, chat_id, strings.Repeat("Lorem ipsum", int(msgLen)), u.conn)
 		}
 
 		time.Sleep(TimeBetweenActions)

@@ -258,7 +258,7 @@ func (r scylladbRepository) ListMessages(ctx context.Context, chatId string, pag
 	stmt, names := qb.Select(messagesMetadata.Name).
 		Columns(messagesMetadata.Columns...).
 		Where(qb.Eq("chat_id")).
-		OrderBy(messagesMetadata.SortKey[0], qb.DESC).
+		OrderBy(messagesMetadata.SortKey[0], qb.ASC).
 		Limit(uint(MESSAGE_PAGE_SIZE)).
 		ToCql()
 
