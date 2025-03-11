@@ -1,0 +1,135 @@
+namespace WebsocketMessage;
+
+table ChatWithLatestMessage {
+  chat_id: string;
+  latest_message_at: int64;
+}
+
+table MessageDB {
+  msg_id: string;
+  chat_id: string;
+  user_id: string;
+  text: string;
+  created_at_micro: int64;
+}
+
+table ListChatsResponse {
+  chats: [ChatWithLatestMessage];
+}
+
+table ListMessagesResponse {
+  chat_id: string;
+  messages: [MessageDB];
+}
+
+table CreateChatResponse {
+  chat_id: string;
+}
+
+table ListUsersResponse {
+  users: [string];
+  chat_id: string;
+}
+
+table CreateMessageResponse {
+  chat_id: string;
+  text: string;
+  user_id: string;
+  created_at_micro: int64;
+  msg_id: string;
+}
+
+table AddUserResponse {
+  chat_id: string;
+  user_id: string;
+}
+
+table MessageNotification {
+  chat_id: string;
+  text: string;
+  user_id: string;
+  created_at_micro: int64;
+  msg_id: string;
+}
+
+table UserListNotification {
+  chat_id: string;
+  new_user_id: string;
+}
+
+table ChatListNotification {
+  chat_id: string;
+  user_id: string;
+  last_activity: int64;
+}
+
+table SendMessageRequest {
+  chat_id: string;
+  uid: string;
+  text: string;
+}
+
+table ListChatsRequest {
+  uid: string;
+}
+
+table ListMessagesRequest {
+  chat_id: string;
+  page: uint64;
+}
+
+table ListUsersRequest {
+  chat_id: string;
+}
+
+table CreateChatRequest {
+  uid: string;
+}
+
+table AddUserRequest {
+  chat_id: string;
+  user_id: string;
+}
+
+enum Opcode: byte { 
+  LIST_CHATS_RESPONSE, 
+  LIST_MESSAGES_RESPONSE, 
+  CREATE_CHAT_RESPONSE, 
+  LIST_USERS_RESPONSE, 
+  CREATE_MESSAGE_RESPONSE, 
+  ADD_USER_RESPONSE, 
+  MESSAGE_NOTIFICATION, 
+  USER_LIST_NOTIFICATION, 
+  CHAT_LIST_NOTIFICATION,
+  SEND_MESSAGE_REQUEST,
+  LIST_CHATS_REQUEST,
+  LIST_MESSAGES_REQUEST,
+  LIST_USERS_REQUEST,
+  CREATE_CHAT_REQUEST,
+  ADD_USER_REQUEST
+}
+
+union Payload { 
+    ChatListNotification, 
+    UserListNotification, 
+    MessageNotification, 
+    AddUserResponse, 
+    CreateMessageResponse, 
+    ListUsersResponse, 
+    CreateChatResponse, 
+    ListMessagesResponse, 
+    ListChatsResponse,
+    SendMessageRequest,
+    ListChatsRequest,
+    ListMessagesRequest,
+    ListUsersRequest,
+    CreateChatRequest,
+    AddUserRequest
+}
+
+table Message {
+  opcode: Opcode;
+  payload: Payload;
+}
+
+root_type Message;

@@ -30,6 +30,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/gocql/gocql v1.7.0 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
+	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
