@@ -1,5 +1,5 @@
 ### Goal: simulate 1 billion MAU with 1 trillion messages per month
-#### Current basic mvp: max throughput 4000msg/s (10B messages per month)
+#### Current basic mvp: max throughput 30,000 msg/s (80B messages per month)
 
 # observability dashboard (grafana + prometheus)
 
@@ -10,18 +10,22 @@
 
 
 ##### lessons from latest testing:
-- 2 vcore xcylla can handle 10k ops/s at least
-- when scylla can no longer fit all rows in cache read latencies increase from 1ms to 100ms, likely because of COUNT * scan queries for metrics (need to fix this)
-- a lot of time is waste in decoding/encoding json -> use binary formats, protobuf + add simple fast compression on top of that
+- 8vcpu (c6gd.2xlarge) scylladb instance can easily handle 30k writes/sec at 40% load => ~500k writes/sec on a c6gd.metal? => 2M+ msgs/sec on a cluster of 5ish instances?
+- need better testing setup, better control over load, better user simulation behaviour, better client machine distribution (launch 100 1vcpu instances all over the globe, etc.)
+- finer grained profiler tool might be nice
 - a lot of time is spent getting all users in a chat, since every time a goroutine wants to notify users it queries db -> lots of the same reads
 - a lot of time is spent by scheduler switching from one goroutine to another, a lot of time is spent in sync.Map and mutex synchronizations
 
 ##### next immediate tasks:
 - [x] ability to test locally + deploy to AWS
 - [x] move to ScyllaDB
-- [ ] move to zero-copy IO websockets with poller design
-- [ ] move ws communication to protobufs
-- [ ] move away from architecture where each thread is handling ws_read/logic/queries/ws_write towards an event driven architecture where there are goroutines pools responsible for different steps
+- [x] move to zero-copy IO websockets with poller design
+- [x] move ws communication to protobufs
+- [ ] build better chat (msg order, etc., make it like an actual usable chat)
+- [ ] build better testing agent + control panel
+- [ ] initialize database with 2 months worth of data
+- [ ] run actual stress test for future references
+- [ ] optimize monolith architecture
 - [ ] intra-server event pub/sub with broadcast (assumes 1 cluster for now)
 
 Future:

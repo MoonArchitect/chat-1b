@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 4.0"
+      version = "~> 5.9"
     }
   }
 }
@@ -32,7 +32,7 @@ data "aws_availability_zone" "servers" {
 
 resource "aws_instance" "backend" {
   ami           = "ami-00a37593d56e9b1bf"
-  instance_type = "c6g.xlarge"
+  instance_type = "c6g.4xlarge"
 
   iam_instance_profile   = aws_iam_instance_profile.ssm_instance_profile.name
   subnet_id              = aws_subnet.public_subnet.id
@@ -44,6 +44,21 @@ resource "aws_instance" "backend" {
     "ServerType" = "backend"
   }
 }
+
+# resource "aws_instance" "test_server" {
+#   ami           = "ami-00a37593d56e9b1bf"
+#   instance_type = "c6g.large"
+
+#   iam_instance_profile   = aws_iam_instance_profile.ssm_instance_profile.name
+#   subnet_id              = aws_subnet.public_subnet.id
+#   vpc_security_group_ids = [aws_security_group.backend_sg.id]
+#   availability_zone      = data.aws_availability_zone.servers.name
+
+#   tags = {
+#     Name         = "test-server"
+#     "ServerType" = "test-server"
+#   }
+# }
 
 # resource "aws_volume_attachment" "ebs_att" {
 #   device_name = "/dev/sda1"
@@ -60,7 +75,7 @@ resource "aws_instance" "backend" {
 resource "aws_instance" "scylla_db" {
   count                  = 1
   ami                    = "ami-039338d7e5e3ed484"
-  instance_type          = "c6gd.large"
+  instance_type          = "c6gd.2xlarge"
   subnet_id              = aws_subnet.db_subnet.id
   vpc_security_group_ids = [aws_security_group.db_sg.id]
   private_ip             = element(["10.0.2.10", "10.0.2.11"], count.index)
@@ -103,7 +118,7 @@ resource "aws_instance" "scylla_db" {
 
 resource "aws_instance" "monitoring" {
   ami                    = "ami-0093872901c1f8e0a"
-  instance_type          = "t4g.micro"
+  instance_type          = "t4g.medium"
   subnet_id              = aws_subnet.public_subnet.id
   vpc_security_group_ids = [aws_security_group.monitoring_sg.id]
   availability_zone      = data.aws_availability_zone.servers.name

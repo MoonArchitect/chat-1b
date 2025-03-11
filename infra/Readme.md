@@ -3,16 +3,16 @@
 aws ssm create-document --name "deployBackend" --content file://aws-ssm-deploy.json --document-type Command
 
 # steps to stress test
-1. spin up infra
-2. run upload-code.sh
-3. run aws ssm send-command
-4. ssh into the server & init db
-5. build exec
-6. launch server
-7. change ip in local prometheus config
-8. open up scylla grafana with public ip
-9. change public ip of backend in test agent
-10. run test-agent
+0. change IPs in local code
+0.1. change ip in local prometheus config
+0.2. change public ip of backend in test agent
+1. run upload-code.sh
+2. spin up infra
+3. ssh into the server
+4. init db
+5. run aws ssm send-command
+6. open up scylla grafana with public ip
+7. run test-agent
 
 # Run ssm 
 aws ssm send-command --document-name "deployBackend" --targets '[{"Key":"tag:ServerType","Values":["backend"]}]' --comment "Deploying app to all Backend instances"
